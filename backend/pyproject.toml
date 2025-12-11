@@ -1,0 +1,23 @@
+[project]
+name = "sidebyside-backend"
+version = "0.1.0"
+description = "SideBySide FastAPI backend"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.5",
+  "uvicorn[standard]==0.32.1",
+  "sqlmodel==0.0.22",
+  "SQLAlchemy==2.0.36",
+  "pydantic==2.9.2",
+  "python-multipart==0.0.17",
+  "passlib[bcrypt]==1.7.4",
+  "python-jose[cryptography]==3.3.0",
+  "starlette==0.41.2",
+  "typing-extensions==4.12.2",
+  "itsdangerous==2.2.0",
+  "psycopg2-binary==2.9.10",
+]
+
+[tool.uv]
+dev-dependencies = []
+

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field
 
 
 class UserBase(SQLModel):
@@ -14,9 +14,6 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     password_hash: str
-
-    # relationships
-    wordlists: list["WordList"] = Relationship(back_populates="owner")
 
 
 class Friendship(SQLModel, table=True):
@@ -34,9 +31,6 @@ class WordList(WordListBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id")
 
-    owner: Optional[User] = Relationship(back_populates="wordlists")
-    words: list["Word"] = Relationship(back_populates="wordlist")
-
 
 class Word(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -44,8 +38,6 @@ class Word(SQLModel, table=True):
     term: str = Field(index=True)
     definition: Optional[str] = None
     example: Optional[str] = None
-
-    wordlist: Optional[WordList] = Relationship(back_populates="words")
 
 
 class SessionBase(SQLModel):
@@ -71,4 +63,3 @@ class Attempt(SQLModel, table=True):
     correct: bool = Field(default=False)
     points: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-

@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      # Explicit path so it works inside container workdir (/app)
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data.db}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      # Default Dockerfile builds static site + nginx (prod). Dev override switches Dockerfile.
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: sidebyside_net
