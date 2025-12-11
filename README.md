@@ -3,7 +3,7 @@ SideBySide — English Study (FastAPI + React)
 What’s included
 - backend/ (FastAPI + SQLModel + JWT)
 - frontend/ (Vite + React + TS)
-- llm_api_loader/ (optional LLM enrichment utilities already present)
+- backend/llm_api_loader/ (optional LLM integration for enrichment)
 
 Run backend
 - `pip install -r backend/requirements.txt`

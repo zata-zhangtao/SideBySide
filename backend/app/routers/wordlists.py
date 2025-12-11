@@ -78,7 +78,7 @@ async def create_from_image(
 ) -> dict[str, Any]:
     """Create a wordlist by extracting vocabulary from an uploaded image via LLM.
 
-    Requires llm_api_loader to be configured (see repo llm_api_loader/README.md).
+    Requires llm_api_loader to be configured (see backend/README.md).
     """
     # Create list first
     wl = WordList(name=name, description=description, owner_id=user.id)
@@ -126,7 +126,7 @@ async def preview_from_image(
 ) -> list[dict[str, Any]]:
     """Preview words extracted from an image without saving them.
 
-    Requires llm_api_loader to be configured (see repo llm_api_loader/README.md).
+    Requires llm_api_loader to be configured (see backend/README.md).
     """
     data = await file.read()
     try:

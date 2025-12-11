@@ -5,7 +5,6 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./llm_api_loader:/app/llm_api_loader
       - backend_data:/app/data
     environment:
       # Use sqlite in dev and allow CORS from Vite dev server
