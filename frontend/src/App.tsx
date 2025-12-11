@@ -496,10 +496,47 @@ function StartSession() {
   const [wordlistId, setWordlistId] = useState('')
   const [friend, setFriend] = useState('')
   const [sessionId, setSessionId] = useState<number | null>(null)
+  const [joinId, setJoinId] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const create = async () => {
-    const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}`, { method: 'POST' })
-    setSessionId(data.id)
+    setMessage('')
+    setLoading(true)
+    try {
+      const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}`, { method: 'POST' })
+      setSessionId(data.id)
+      setMessage(`已创建异步打卡，邀请对方加入此 Session ID：${data.id}`)
+    } catch (e: any) {
+      setMessage(`创建失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+  const join = async () => {
+    const idNum = Number(joinId)
+    if (!idNum || isNaN(idNum)) { setMessage('请输入正确的 Session ID'); return }
+    setMessage('')
+    setLoading(true)
+    try {
+      // Probe detail to validate permission before rendering
+      await api(`/sessions/${idNum}`)
+      setSessionId(idNum)
+      setMessage(`已加入 Session #${idNum}`)
+    } catch (e: any) {
+      setMessage(`加入失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+  const copyId = async () => {
+    if (!sessionId) return
+    try {
+      await navigator.clipboard.writeText(String(sessionId))
+      setMessage('已复制 Session ID 到剪贴板')
+    } catch {
+      setMessage('复制失败，请手动复制 Session ID')
+    }
   }
 
   return (
@@ -508,9 +545,19 @@ function StartSession() {
       <div className="row">
         <input className="input" placeholder="词库ID" value={wordlistId} onChange={e => setWordlistId(e.target.value)} />
         <input className="input" placeholder="好友用户名" value={friend} onChange={e => setFriend(e.target.value)} />
-        <button className="btn btn-primary" onClick={create}>创建</button>
-        {sessionId && <span className="badge">Session #{sessionId}</span>}
+        <button className="btn btn-primary" onClick={create} disabled={loading}>{loading ? '创建中…' : '创建'}</button>
+        {sessionId && (
+          <>
+            <span className="badge">Session #{sessionId}</span>
+            <button className="btn" onClick={copyId}>复制ID</button>
+          </>
+        )}
       </div>
+      <div className="row">
+        <input className="input" placeholder="已有 Session ID，输入加入" value={joinId} onChange={e => setJoinId(e.target.value)} />
+        <button className="btn" onClick={join} disabled={loading}>加入</button>
+      </div>
+      {message && <div className={`alert ${message.startsWith('创建失败') || message.startsWith('加入失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>}
       {sessionId && <Quiz sessionId={sessionId} />}
     </div>
   )
@@ -641,7 +688,24 @@ function WeeklyReport() {
 function Friends() {
   const [username, setUsername] = useState('')
   const [list, setList] = useState<any[]>([])
-  const add = async () => { await api(`/friends/add?username=${encodeURIComponent(username)}`, { method: 'POST' }); setUsername(''); refresh() }
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const add = async () => {
+    const u = username.trim()
+    if (!u) { setMessage('请输入好友用户名'); return }
+    setLoading(true)
+    setMessage('')
+    try {
+      const res = await api(`/friends/add?username=${encodeURIComponent(u)}`, { method: 'POST' })
+      setMessage(res?.message || '添加成功')
+      setUsername('')
+      await refresh()
+    } catch (e: any) {
+      setMessage(`添加失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
   const refresh = async () => { const r = await api('/friends'); setList(r) }
   useEffect(() => { refresh() }, [])
   return (
@@ -649,8 +713,9 @@ function Friends() {
       <h3 className="card-title">好友</h3>
       <div className="row">
         <input className="input" value={username} onChange={e => setUsername(e.target.value)} placeholder="用户名" />
-        <button className="btn" onClick={add}>添加好友</button>
+        <button className="btn" onClick={add} disabled={loading}>{loading ? '添加中…' : '添加好友'}</button>
       </div>
+      {message && <div className={`alert ${message.startsWith('添加失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>}
       <ul>
         {list.map(f => <li key={f.id}>{f.username}</li>)}
       </ul>
