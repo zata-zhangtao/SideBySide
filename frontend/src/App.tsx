@@ -71,6 +71,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
   )
 }
 
+interface PreviewWord {
+  term: string
+  definition?: string | null
+  example?: string | null
+}
+
 function UploadWordlist() {
   const [name, setName] = useState('My Words')
   const [listId, setListId] = useState<number | null>(null)
@@ -80,6 +86,44 @@ function UploadWordlist() {
   const [message, setMessage] = useState('')
   const [mode, setMode] = useState<'file' | 'image'>('file')
   const [loading, setLoading] = useState(false)
+  const [wordlists, setWordlists] = useState<any[]>([])
+  const [showList, setShowList] = useState(false)
+  const [expandedListId, setExpandedListId] = useState<number | null>(null)
+  const [words, setWords] = useState<{ [listId: number]: any[] }>({})
+  const [previewWords, setPreviewWords] = useState<PreviewWord[]>([])
+  const [isPreviewMode, setIsPreviewMode] = useState(false)
+  const [newTerm, setNewTerm] = useState('')
+  const [newDefinition, setNewDefinition] = useState('')
+  const [newExample, setNewExample] = useState('')
+
+  const loadWordlists = async () => {
+    try {
+      const data = await api('/wordlists')
+      setWordlists(data)
+    } catch (e) {
+      setMessage(`加载词库失败：${e}`)
+    }
+  }
+
+  const loadWords = async (listId: number) => {
+    try {
+      const data = await api(`/wordlists/${listId}/words`)
+      setWords(prev => ({ ...prev, [listId]: data }))
+    } catch (e) {
+      setMessage(`加载单词失败：${e}`)
+    }
+  }
+
+  const toggleWordList = (listId: number) => {
+    if (expandedListId === listId) {
+      setExpandedListId(null)
+    } else {
+      setExpandedListId(listId)
+      if (!words[listId]) {
+        loadWords(listId)
+      }
+    }
+  }
 
   const createList = async () => {
     const fd = new FormData()
@@ -88,16 +132,7 @@ function UploadWordlist() {
     if (!res.ok) throw new Error(await res.text())
     const data = await res.json()
     setListId(data.id)
-  }
-
-  const upload = async () => {
-    if (!listId || !file) return
-    const fd = new FormData()
-    fd.set('file', file)
-    const res = await fetch(`${API_BASE}/wordlists/${listId}/upload`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
-    if (!res.ok) throw new Error(await res.text())
-    const data = await res.json()
-    setMessage(data.message)
+    loadWordlists() // Refresh list after creating
   }
 
   const createFromImage = async () => {
@@ -106,19 +141,115 @@ function UploadWordlist() {
     setMessage('')
     try {
       const fd = new FormData()
-      fd.set('name', name)
       fd.set('file', imgFile)
-      const res = await fetch(`${API_BASE}/wordlists/from_image`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      const res = await fetch(`${API_BASE}/wordlists/preview_from_image`, {
+        method: 'POST',
+        body: fd,
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      })
       if (!res.ok) throw new Error(await res.text())
       const data = await res.json()
-      setListId(data.id)
-      setMessage(data.message || '图片识别完成')
+      setPreviewWords(data)
+      setIsPreviewMode(true)
+      setMessage(`识别到 ${data.length} 个单词，请确认`)
     } catch (e: any) {
       setMessage(`失败：${String(e)}`)
     } finally {
       setLoading(false)
     }
   }
+
+  const previewFromFile = async () => {
+    if (!listId || !file) return
+    setLoading(true)
+    setMessage('')
+    try {
+      const fd = new FormData()
+      fd.set('file', file)
+      const res = await fetch(`${API_BASE}/wordlists/${listId}/preview_upload`, {
+        method: 'POST',
+        body: fd,
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setPreviewWords(data)
+      setIsPreviewMode(true)
+      setMessage(`解析到 ${data.length} 个单词，请确认`)
+    } catch (e: any) {
+      setMessage(`失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const savePreviewedWords = async () => {
+    if (!listId) {
+      // For image mode, create wordlist first
+      try {
+        const fd = new FormData()
+        fd.set('name', name)
+        const res = await fetch(`${API_BASE}/wordlists`, {
+          method: 'POST',
+          body: fd,
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        })
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        setListId(data.id)
+        await saveWordsToList(data.id)
+      } catch (e: any) {
+        setMessage(`创建词库失败：${String(e)}`)
+      }
+    } else {
+      await saveWordsToList(listId)
+    }
+  }
+
+  const saveWordsToList = async (targetListId: number) => {
+    setLoading(true)
+    try {
+      const data = await api(`/wordlists/${targetListId}/save_words`, {
+        method: 'POST',
+        body: JSON.stringify(previewWords)
+      })
+      setMessage(data.message || `成功保存 ${data.count} 个单词`)
+      setIsPreviewMode(false)
+      setPreviewWords([])
+      loadWordlists()
+    } catch (e: any) {
+      setMessage(`保存失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const removePreviewWord = (index: number) => {
+    setPreviewWords(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const addNewWord = () => {
+    if (!newTerm.trim()) return
+    setPreviewWords(prev => [...prev, {
+      term: newTerm.trim(),
+      definition: newDefinition.trim() || null,
+      example: newExample.trim() || null
+    }])
+    setNewTerm('')
+    setNewDefinition('')
+    setNewExample('')
+  }
+
+  const cancelPreview = () => {
+    setIsPreviewMode(false)
+    setPreviewWords([])
+    setMessage('')
+  }
+
+  // Load wordlists on mount
+  useEffect(() => {
+    loadWordlists()
+  }, [])
 
   // Preview management
   useEffect(() => {
@@ -175,48 +306,187 @@ function UploadWordlist() {
   return (
     <div className="card stack">
       <h3 className="card-title">上传单词库</h3>
-      <div className="row">
-        <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="词库名称" />
-        <button className="btn btn-primary" onClick={createList}>创建词库</button>
-        {listId && <span className="badge">已创建: {listId}</span>}
-      </div>
-      <div className="row">
-        <button className={`btn btn-sm ${mode === 'file' ? 'btn-primary' : ''}`} onClick={() => setMode('file')}>CSV/JSON 导入</button>
-        <button className={`btn btn-sm ${mode === 'image' ? 'btn-primary' : ''}`} onClick={() => setMode('image')}>图片建库（LLM）</button>
-      </div>
 
-      {mode === 'file' && (
-        <div className="row">
-          <input className="file" type="file" accept=".csv,.json" onChange={e => setFile(e.target.files?.[0] || null)} />
-          <button className="btn" onClick={upload} disabled={!listId || !file}>上传</button>
-        </div>
-      )}
-
-      {mode === 'image' && (
-        <>
-          <div className="row">
-            <input className="file" type="file" accept="image/*" onChange={e => setImgFile(e.target.files?.[0] || null)} />
-            <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别并建库'}</button>
-          </div>
-          <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
-            {previewUrl ? (
-              <div className="stack" style={{ alignItems: 'center' }}>
-                <img className="preview" src={previewUrl} alt="预览" />
-                <div className="muted">已准备：{imgFile?.name || '粘贴的图片'}（{imgFile ? Math.round(imgFile.size / 1024) : 0} KB）</div>
-                <div className="muted">按 Ctrl/⌘+V 替换，或拖拽进来</div>
-              </div>
+      {/* 预览模式 */}
+      {isPreviewMode ? (
+        <div className="stack">
+          <h4>预览单词 (共 {previewWords.length} 个)</h4>
+          <div style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '12px' }}>
+            {previewWords.length === 0 ? (
+              <div className="muted">没有单词</div>
             ) : (
-              <div className="stack" style={{ alignItems: 'center' }}>
-                <div>将图片粘贴到此处（Ctrl/⌘+V）</div>
-                <div className="muted">或拖拽图片到此处</div>
+              <div className="stack">
+                {previewWords.map((word, idx) => (
+                  <div key={idx} style={{ padding: '8px', borderBottom: idx < previewWords.length - 1 ? '1px solid #eee' : 'none', display: 'flex', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600 }}>{word.term}</div>
+                      {word.definition && <div className="muted">释义: {word.definition}</div>}
+                      {word.example && <div className="muted" style={{ fontSize: '13px' }}>例句: {word.example}</div>}
+                    </div>
+                    <button className="btn btn-sm" onClick={() => removePreviewWord(idx)} style={{ alignSelf: 'flex-start' }}>删除</button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-        </>
-      )}
 
-      {message && (
-        <div className={`alert ${message.startsWith('失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>
+          {/* 添加新单词 */}
+          <div className="card" style={{ background: '#f9f9f9', padding: '12px' }}>
+            <h5 style={{ margin: '0 0 8px 0' }}>添加新单词</h5>
+            <div className="stack">
+              <input className="input" placeholder="单词 *" value={newTerm} onChange={e => setNewTerm(e.target.value)} />
+              <input className="input" placeholder="释义" value={newDefinition} onChange={e => setNewDefinition(e.target.value)} />
+              <input className="input" placeholder="例句" value={newExample} onChange={e => setNewExample(e.target.value)} />
+              <button className="btn btn-sm" onClick={addNewWord} disabled={!newTerm.trim()}>添加</button>
+            </div>
+          </div>
+
+          {/* 操作按钮 */}
+          <div className="row">
+            <button className="btn btn-outline" onClick={cancelPreview}>取消</button>
+            <button className="btn btn-primary" onClick={savePreviewedWords} disabled={loading || previewWords.length === 0}>
+              {loading ? '保存中...' : '确认保存'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 查看词库按钮 */}
+          <div className="row">
+            <button className="btn btn-outline" onClick={() => setShowList(!showList)}>
+              {showList ? '隐藏词库列表' : '查看我的词库'}
+            </button>
+          </div>
+
+          {/* 词库列表 */}
+          {showList && (
+            <div className="card stack" style={{ background: '#f5f5f5', padding: '12px' }}>
+              <h4 style={{ margin: '0 0 8px 0' }}>我的词库</h4>
+              {wordlists.length === 0 ? (
+                <div className="muted">暂无词库</div>
+              ) : (
+                <div className="stack">
+                  {wordlists.map((wl: any) => (
+                    <div key={wl.id} style={{ marginBottom: '8px' }}>
+                      <div className="row" style={{ alignItems: 'center', cursor: 'pointer', padding: '8px', background: 'white', borderRadius: '4px' }}>
+                        <div style={{ flex: 1 }}>
+                          <strong>{wl.name}</strong> (ID: {wl.id})
+                          {wl.description && <span className="muted"> - {wl.description}</span>}
+                        </div>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => toggleWordList(wl.id)}
+                          style={{ marginLeft: '8px' }}
+                        >
+                          {expandedListId === wl.id ? '收起' : '查看单词'}
+                        </button>
+                      </div>
+
+                      {/* 单词列表 */}
+                      {expandedListId === wl.id && (
+                        <div style={{ marginTop: '8px', padding: '12px', background: 'white', borderRadius: '4px' }}>
+                          {!words[wl.id] ? (
+                            <div className="muted">加载中...</div>
+                          ) : words[wl.id].length === 0 ? (
+                            <div className="muted">该词库暂无单词</div>
+                          ) : (
+                            <div className="stack">
+                              <div style={{ fontWeight: 600, marginBottom: '8px' }}>
+                                共 {words[wl.id].length} 个单词
+                              </div>
+                              {words[wl.id].map((word: any, idx: number) => (
+                                <div key={word.id} style={{
+                                  padding: '8px',
+                                  borderBottom: idx < words[wl.id].length - 1 ? '1px solid #eee' : 'none'
+                                }}>
+                                  <div style={{ marginBottom: '4px' }}>
+                                    <span style={{ fontWeight: 600, fontSize: '16px' }}>{word.term}</span>
+                                  </div>
+                                  {word.definition && (
+                                    <div style={{ marginBottom: '4px', color: '#555' }}>
+                                      释义: {word.definition}
+                                    </div>
+                                  )}
+                                  {word.example && (
+                                    <div className="muted" style={{ fontSize: '14px' }}>
+                                      例句: {word.example}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="row">
+            <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="词库名称" />
+            <button className="btn btn-primary" onClick={createList}>创建词库</button>
+            {listId && <span className="badge">已创建: {listId}</span>}
+          </div>
+          {/* 选择已有词库作为导入目标 */}
+          <div className="row">
+            <select
+              className="input"
+              value={listId ?? ''}
+              onChange={e => {
+                const v = e.target.value
+                setListId(v ? Number(v) : null)
+              }}
+            >
+              <option value="">选择已有词库作为导入目标</option>
+              {wordlists.map((wl: any) => (
+                <option key={wl.id} value={wl.id}>{wl.name} (ID: {wl.id})</option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => setShowList(s => !s)}>{showList ? '收起列表' : '查看我的词库'}</button>
+            {listId && <span className="badge">目标: {listId}</span>}
+          </div>
+          <div className="row">
+            <button className={`btn btn-sm ${mode === 'file' ? 'btn-primary' : ''}`} onClick={() => setMode('file')}>CSV/JSON 导入</button>
+            <button className={`btn btn-sm ${mode === 'image' ? 'btn-primary' : ''}`} onClick={() => setMode('image')}>图片建库（LLM）</button>
+          </div>
+
+          {mode === 'file' && (
+            <div className="row">
+              <input className="file" type="file" accept=".csv,.json" onChange={e => setFile(e.target.files?.[0] || null)} />
+              <button className="btn" onClick={previewFromFile} disabled={!listId || !file}>预览</button>
+            </div>
+          )}
+
+          {mode === 'image' && (
+            <>
+              <div className="row">
+                <input className="file" type="file" accept="image/*" onChange={e => setImgFile(e.target.files?.[0] || null)} />
+                <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别'}</button>
+              </div>
+              <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
+                {previewUrl ? (
+                  <div className="stack" style={{ alignItems: 'center' }}>
+                    <img className="preview" src={previewUrl} alt="预览" />
+                    <div className="muted">已准备：{imgFile?.name || '粘贴的图片'}（{imgFile ? Math.round(imgFile.size / 1024) : 0} KB）</div>
+                    <div className="muted">按 Ctrl/⌘+V 替换，或拖拽进来</div>
+                  </div>
+                ) : (
+                  <div className="stack" style={{ alignItems: 'center' }}>
+                    <div>将图片粘贴到此处（Ctrl/⌘+V）</div>
+                    <div className="muted">或拖拽图片到此处</div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {message && (
+            <div className={`alert ${message.startsWith('失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>
+          )}
+        </>
       )}
     </div>
   )

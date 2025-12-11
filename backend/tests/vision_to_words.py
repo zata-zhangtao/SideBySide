@@ -197,3 +197,4 @@ def extract_words_from_image(image_bytes: bytes) -> List[Dict[str, Any]]:
         if re.fullmatch(r"[A-Za-z][A-Za-z\- ]{0,29}", line):
             items.append({"term": line.strip()})
     return items
+
