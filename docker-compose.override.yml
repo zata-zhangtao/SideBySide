@@ -5,12 +5,20 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./llm_api_loader:/app/llm_api_loader
       - backend_data:/app/data
     environment:
       # Use sqlite in dev and allow CORS from Vite dev server
       # Store DB on a named volume to avoid read-only bind mount issues on some hosts
       DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/data.db}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # LLM provider (Qwen/DashScope)
+      LLM_PROVIDER: ${LLM_PROVIDER:-qwen}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/api/v1}
+      MODEL_NAME: ${MODEL_NAME:-qwen3-vl-plus}
+      ENABLE_THINKING: ${ENABLE_THINKING:-true}
+      THINKING_BUDGET: ${THINKING_BUDGET:-50}
 
   frontend:
     build:

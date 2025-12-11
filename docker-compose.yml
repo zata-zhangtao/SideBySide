@@ -7,6 +7,13 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data.db}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # LLM provider (Qwen/DashScope)
+      LLM_PROVIDER: ${LLM_PROVIDER:-qwen}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/api/v1}
+      MODEL_NAME: ${MODEL_NAME:-qwen3-vl-plus}
+      ENABLE_THINKING: ${ENABLE_THINKING:-true}
+      THINKING_BUDGET: ${THINKING_BUDGET:-50}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s

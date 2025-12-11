@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from ..deps import get_current_user, get_db
 from ..models import User, Word, WordList
 from ..utils.parser import sniff_and_parse
+from ..services.vision_to_words import extract_words_from_image
 
 
 router = APIRouter()
@@ -60,6 +61,48 @@ async def upload_words(
     return {"message": f"Imported {created} words"}
 
 
+@router.post("/wordlists/from_image")
+async def create_from_image(
+    name: str = Form(...),
+    description: str | None = Form(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create a wordlist by extracting vocabulary from an uploaded image via LLM.
+
+    Requires llm_api_loader to be configured (see repo llm_api_loader/README.md).
+    """
+    # Create list first
+    wl = WordList(name=name, description=description, owner_id=user.id)
+    db.add(wl)
+    db.commit()
+    db.refresh(wl)
+
+    # Run extraction
+    data = await file.read()
+    try:
+        rows = extract_words_from_image(data)
+    except ImportError:
+        raise HTTPException(status_code=400, detail="LLM provider not configured. Install provider SDK and set env.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to extract words: {e}")
+
+    created = 0
+    for r in rows:
+        term = (r.get("term") or "").strip()
+        if not term:
+            continue
+        definition = (r.get("definition") or None) or None
+        example = (r.get("example") or None) or None
+        w = Word(list_id=wl.id, term=term, definition=definition, example=example)
+        db.add(w)
+        created += 1
+    db.commit()
+
+    return {"id": wl.id, "name": wl.name, "message": f"Extracted {created} items from image"}
+
+
 @router.get("/wordlists/{list_id}/words")
 def get_words(list_id: int, limit: int = 100, offset: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, Any]]:
     wl = db.get(WordList, list_id)
@@ -67,4 +110,3 @@ def get_words(list_id: int, limit: int = 100, offset: int = 0, db: Session = Dep
         raise HTTPException(status_code=404, detail="Wordlist not found")
     rows = db.exec(select(Word).where(Word.list_id == wl.id).offset(offset).limit(limit)).all()
     return [{"id": w.id, "term": w.term, "definition": w.definition, "example": w.example} for w in rows]
-

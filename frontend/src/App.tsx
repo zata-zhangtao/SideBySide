@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api'
 
@@ -75,7 +75,11 @@ function UploadWordlist() {
   const [name, setName] = useState('My Words')
   const [listId, setListId] = useState<number | null>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [imgFile, setImgFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [message, setMessage] = useState('')
+  const [mode, setMode] = useState<'file' | 'image'>('file')
+  const [loading, setLoading] = useState(false)
 
   const createList = async () => {
     const fd = new FormData()
@@ -96,6 +100,78 @@ function UploadWordlist() {
     setMessage(data.message)
   }
 
+  const createFromImage = async () => {
+    if (!imgFile) return
+    setLoading(true)
+    setMessage('')
+    try {
+      const fd = new FormData()
+      fd.set('name', name)
+      fd.set('file', imgFile)
+      const res = await fetch(`${API_BASE}/wordlists/from_image`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setListId(data.id)
+      setMessage(data.message || '图片识别完成')
+    } catch (e: any) {
+      setMessage(`失败：${String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Preview management
+  useEffect(() => {
+    if (imgFile) {
+      const url = URL.createObjectURL(imgFile)
+      setPreviewUrl(url)
+      return () => URL.revokeObjectURL(url)
+    } else {
+      setPreviewUrl(null)
+    }
+  }, [imgFile])
+
+  // Paste/Drop handlers (image)
+  const dropRef = useRef<HTMLDivElement | null>(null)
+  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.type && it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) {
+          setImgFile(f)
+          e.preventDefault()
+          setMessage('已从剪贴板粘贴图片')
+          break
+        }
+      }
+    }
+  }
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const files = e.dataTransfer?.files
+    if (!files || !files.length) return
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      if (f.type && f.type.startsWith('image/')) {
+        setImgFile(f)
+        setMessage('已选择图片（拖拽）')
+        break
+      }
+    }
+  }
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+  }
+  useEffect(() => {
+    if (mode === 'image') {
+      // Focus dropzone for immediate paste
+      dropRef.current?.focus()
+    }
+  }, [mode])
+
   return (
     <div className="card stack">
       <h3 className="card-title">上传单词库</h3>
@@ -105,10 +181,43 @@ function UploadWordlist() {
         {listId && <span className="badge">已创建: {listId}</span>}
       </div>
       <div className="row">
-        <input className="file" type="file" accept=".csv,.json" onChange={e => setFile(e.target.files?.[0] || null)} />
-        <button className="btn" onClick={upload} disabled={!listId || !file}>上传</button>
+        <button className={`btn btn-sm ${mode === 'file' ? 'btn-primary' : ''}`} onClick={() => setMode('file')}>CSV/JSON 导入</button>
+        <button className={`btn btn-sm ${mode === 'image' ? 'btn-primary' : ''}`} onClick={() => setMode('image')}>图片建库（LLM）</button>
       </div>
-      {message && <div className="alert alert-success">{message}</div>}
+
+      {mode === 'file' && (
+        <div className="row">
+          <input className="file" type="file" accept=".csv,.json" onChange={e => setFile(e.target.files?.[0] || null)} />
+          <button className="btn" onClick={upload} disabled={!listId || !file}>上传</button>
+        </div>
+      )}
+
+      {mode === 'image' && (
+        <>
+          <div className="row">
+            <input className="file" type="file" accept="image/*" onChange={e => setImgFile(e.target.files?.[0] || null)} />
+            <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别并建库'}</button>
+          </div>
+          <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
+            {previewUrl ? (
+              <div className="stack" style={{ alignItems: 'center' }}>
+                <img className="preview" src={previewUrl} alt="预览" />
+                <div className="muted">已准备：{imgFile?.name || '粘贴的图片'}（{imgFile ? Math.round(imgFile.size / 1024) : 0} KB）</div>
+                <div className="muted">按 Ctrl/⌘+V 替换，或拖拽进来</div>
+              </div>
+            ) : (
+              <div className="stack" style={{ alignItems: 'center' }}>
+                <div>将图片粘贴到此处（Ctrl/⌘+V）</div>
+                <div className="muted">或拖拽图片到此处</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {message && (
+        <div className={`alert ${message.startsWith('失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>
+      )}
     </div>
   )
 }
@@ -318,4 +427,3 @@ export default function App() {
     </>
   )
 }
-
