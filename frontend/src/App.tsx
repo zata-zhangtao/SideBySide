@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import Upload from './components/Upload'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api'
 
@@ -1156,20 +1157,20 @@ export default function App() {
         <div className="container app-bar">
           <div className="brand">SideBySide</div>
           <nav className="tabs">
-            <button className={`btn btn-sm tab ${tab === 'upload' ? 'active' : ''}`} onClick={() => setTab('upload')}>上传词库</button>
-            <button className={`btn btn-sm tab ${tab === 'session' ? 'active' : ''}`} onClick={() => setTab('session')}>开始打卡</button>
-            <button className={`btn btn-sm tab ${tab === 'friends' ? 'active' : ''}`} onClick={() => setTab('friends')}>好友</button>
-            <button className={`btn btn-sm tab ${tab === 'leaderboard' ? 'active' : ''}`} onClick={() => setTab('leaderboard')}>排行榜</button>
-            <button className={`btn btn-sm tab ${tab === 'report' ? 'active' : ''}`} onClick={() => setTab('report')}>学习报告</button>
+            <button className={`btn btn-sm tab ${tab === 'upload' ? 'active' : ''}`} onClick={() => setTab('upload')}><i className="ri-upload-2-line" style={{ marginRight: 6 }} />上传词库</button>
+            <button className={`btn btn-sm tab ${tab === 'session' ? 'active' : ''}`} onClick={() => setTab('session')}><i className="ri-timer-line" style={{ marginRight: 6 }} />开始打卡</button>
+            <button className={`btn btn-sm tab ${tab === 'friends' ? 'active' : ''}`} onClick={() => setTab('friends')}><i className="ri-user-heart-line" style={{ marginRight: 6 }} />好友</button>
+            <button className={`btn btn-sm tab ${tab === 'leaderboard' ? 'active' : ''}`} onClick={() => setTab('leaderboard')}><i className="ri-bar-chart-2-line" style={{ marginRight: 6 }} />排行榜</button>
+            <button className={`btn btn-sm tab ${tab === 'report' ? 'active' : ''}`} onClick={() => setTab('report')}><i className="ri-file-chart-line" style={{ marginRight: 6 }} />学习报告</button>
           </nav>
           <div className="row">
             <span className="muted">Hi, {me.username}</span>
-            <button className="btn btn-outline" onClick={() => { localStorage.removeItem('token'); location.reload() }}>退出</button>
+            <button className="btn btn-outline" onClick={() => { localStorage.removeItem('token'); location.reload() }}><i className="ri-logout-box-r-line" style={{ marginRight: 6 }} />退出</button>
           </div>
         </div>
       </header>
       <main className="container grid">
-        {tab === 'upload' && <UploadWordlist />}
+        {tab === 'upload' && <Upload />}
         {tab === 'session' && <StartSession />}
         {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'report' && <WeeklyReport />}
