@@ -921,6 +921,12 @@ function Quiz({ sessionId }: { sessionId: number }) {
     const r = await api(`/sessions/${sessionId}/attempts?word_id=${word.word_id}&answer=${encodeURIComponent(answer)}&direction=${encodeURIComponent(word.direction || 'zh2en')}`, { method: 'POST' })
     setResult(r)
     refresh()
+    // Auto-advance on correct answer after a short pause
+    if (r?.correct) {
+      setTimeout(() => {
+        loadNext()
+      }, 800)
+    }
   }
   const refresh = async () => {
     const [b, d, w] = await Promise.all([
@@ -968,6 +974,13 @@ function Quiz({ sessionId }: { sessionId: number }) {
               placeholder={word.direction === 'en2zh' ? '请输入中文释义' : '请输入英文单词'}
               value={answer}
               onChange={e => setAnswer(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (result) loadNext()
+                  else submit()
+                }
+              }}
             />
             <button className="btn btn-primary" onClick={submit}>提交</button>
             <button className="btn" onClick={loadNext}>换一个</button>
