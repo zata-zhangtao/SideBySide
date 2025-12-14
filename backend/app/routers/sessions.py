@@ -144,6 +144,110 @@ def create_session(
     }
 
 
+@router.get("/sessions")
+def list_sessions(
+    created_by_me: bool = True,
+    participating: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """
+    列出当前用户相关的会话。
+
+    默认返回“我创建的”会话；可通过 `participating=true` 同时包含我作为参与者加入的会话。
+
+    List study sessions related to the current user. By default it returns
+    sessions "created by me". Set `participating=true` to also include sessions
+    where the user is a participant.
+    """
+    conds = []
+    if created_by_me:
+        conds.append(StudySession.created_by == user.id)
+    if participating:
+        conds.append((StudySession.user_a_id == user.id) | (StudySession.user_b_id == user.id))
+    if not conds:
+        # If no scope specified, default to created_by_me
+        conds.append(StudySession.created_by == user.id)
+
+    stmt = select(StudySession).where(conds[0])
+    for c in conds[1:]:
+        stmt = stmt.union(select(StudySession).where(c))
+    # Execute and de-duplicate by id
+    rows = db.exec(stmt).all()
+    seen: set[int] = set()
+    out: list[dict[str, Any]] = []
+    for sess in sorted(rows, key=lambda s: s.created_at, reverse=True):
+        if sess.id in seen:
+            continue
+        seen.add(sess.id)
+        wl = db.get(WordList, sess.wordlist_id)
+        ua = db.get(User, sess.user_a_id)
+        ub = db.get(User, sess.user_b_id)
+        # last activity
+        last = db.exec(select(Attempt).where(Attempt.session_id == sess.id).order_by(Attempt.created_at.desc())).first()
+        out.append({
+            "id": sess.id,
+            "status": sess.status,
+            "type": sess.type,
+            "created_at": sess.created_at.isoformat(),
+            "zh2en_ratio": getattr(sess, "zh2en_ratio", 50),
+            "practice_ratio": getattr(sess, "practice_ratio", 100),
+            "practice_pool_size": (len(json.loads(sess.practice_pool)) if getattr(sess, "practice_pool", None) else None),
+            "wordlist": {"id": wl.id, "name": wl.name} if wl else None,
+            "participants": [
+                {"id": sess.user_a_id, "username": ua.username if ua else str(sess.user_a_id)},
+                {"id": sess.user_b_id, "username": ub.username if ub else str(sess.user_b_id)},
+            ],
+            "last_activity": (last.created_at.isoformat() if last else None),
+            "created_by_me": (sess.created_by == user.id),
+        })
+    return out
+
+
+@router.post("/sessions/{session_id}/status")
+def update_session_status(
+    session_id: int,
+    status: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """更新会话状态：active/completed/archived。
+
+    参与者或创建者均可操作。状态为全局字段，会影响双方视图。
+    """
+    sess = db.get(StudySession, session_id)
+    if not sess or user.id not in [sess.user_a_id, sess.user_b_id, sess.created_by]:
+        raise HTTPException(status_code=404, detail="Session not found")
+    allowed = {"active", "completed", "archived"}
+    if status not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    sess.status = status
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    return {"id": sess.id, "status": sess.status}
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """删除会话（仅创建者）。会先删除关联的作答记录。"""
+    sess = db.get(StudySession, session_id)
+    if not sess or sess.created_by != user.id:
+        # Hide existence for non-creators
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Delete attempts first to avoid FK constraint issues
+    rows = db.exec(select(Attempt).where(Attempt.session_id == sess.id)).all()
+    for r in rows:
+        db.delete(r)
+    db.delete(sess)
+    db.commit()
+    return {"message": f"Session #{session_id} deleted"}
+
+
 @router.get("/sessions/{session_id}")
 def session_detail(session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, Any]:
     """
@@ -228,6 +332,8 @@ def next_word(
     sess = db.get(StudySession, session_id)
     if not sess or user.id not in [sess.user_a_id, sess.user_b_id]:
         raise HTTPException(status_code=404, detail="Session not found")
+    if getattr(sess, "status", "active") == "archived":
+        raise HTTPException(status_code=403, detail="Session is archived")
     # Fetch words in the list and apply practice pool if present
     words = db.exec(select(Word).where(Word.list_id == sess.wordlist_id)).all()
     pool_ids: list[int] | None = None
@@ -310,6 +416,8 @@ def submit_attempt(
     sess = db.get(StudySession, session_id)
     if not sess or user.id not in [sess.user_a_id, sess.user_b_id]:
         raise HTTPException(status_code=404, detail="Session not found")
+    if getattr(sess, "status", "active") == "archived":
+        raise HTTPException(status_code=403, detail="Session is archived")
     word = db.get(Word, word_id)
     if not word or word.list_id != sess.wordlist_id:
         raise HTTPException(status_code=404, detail="Word not found")

@@ -817,6 +817,9 @@ function StartSession() {
   const [loading, setLoading] = useState(false)
   const [wordlists, setWordlists] = useState<any[]>([])
   const [listsLoading, setListsLoading] = useState(false)
+  const [mySessions, setMySessions] = useState<any[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [includeParticipating, setIncludeParticipating] = useState(false)
 
   const loadWordlists = async () => {
     setListsLoading(true)
@@ -831,6 +834,19 @@ function StartSession() {
   }
 
   useEffect(() => { loadWordlists() }, [])
+  const loadMySessions = async () => {
+    setSessionsLoading(true)
+    try {
+      const qs = includeParticipating ? '/sessions?created_by_me=true&participating=true' : '/sessions?created_by_me=true'
+      const data = await api(qs)
+      setMySessions(data || [])
+    } catch (e: any) {
+      setMessage(`加载我的会话失败：${String(e)}`)
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+  useEffect(() => { loadMySessions() }, [includeParticipating])
 
   // Persist/restore current session id
   useEffect(() => {
@@ -861,6 +877,7 @@ function StartSession() {
       setSessionId(data.id)
       const poolInfo = (data.practice_pool_size != null) ? `，题量占比 ${data.practice_ratio ?? practiceRatio}%（预计 ${data.practice_pool_size} 题）` : ''
       setMessage(`已创建异步打卡（中→英占比 ${data.zh2en_ratio ?? ratio}%${poolInfo}），邀请对方加入此 Session ID：${data.id}`)
+      try { await loadMySessions() } catch {}
     } catch (e: any) {
       setMessage(`创建失败：${String(e)}`)
     } finally {
@@ -873,8 +890,12 @@ function StartSession() {
     setMessage('')
     setLoading(true)
     try {
-      // Probe detail to validate permission before rendering
-      await api(`/sessions/${idNum}`)
+      // Probe detail to validate permission and status before entering
+      const detail = await api(`/sessions/${idNum}`)
+      if (detail?.status === 'archived') {
+        setMessage('此会话已归档，无法加入')
+        return
+      }
       setSessionId(idNum)
       setMessage(`已加入 Session #${idNum}`)
     } catch (e: any) {
@@ -943,6 +964,58 @@ function StartSession() {
       </div>
       {message && <div className={`alert ${message.startsWith('创建失败') || message.startsWith('加入失败') ? 'alert-error' : 'alert-success'}`}>{message}</div>}
       {sessionId && <Quiz sessionId={sessionId} />}
+      {!sessionId && (
+        <div className="card surface-subtle" style={{ padding: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h4 className="section-title" style={{ margin: 0 }}><i className="ri-folder-3-line" style={{ marginRight: 6 }} />我的会话</h4>
+            <label className="row" style={{ gap: 6 }}>
+              <input type="checkbox" checked={includeParticipating} onChange={e => setIncludeParticipating(e.target.checked)} />
+              <span className="muted">包含我参与的</span>
+            </label>
+          </div>
+          {sessionsLoading ? (
+            <div className="muted">加载中…</div>
+          ) : mySessions.length === 0 ? (
+            <div className="muted">暂无会话</div>
+          ) : (
+            <div className="list">
+              {mySessions.map((s: any) => (
+                <div key={s.id} className="list-item">
+                  <div style={{ display: 'grid' }}>
+                    <div style={{ fontWeight: 600 }}>Session #{s.id} · {s.wordlist?.name || '—'}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {(s.participants || []).map((p: any) => p.username).join(' vs ')} · {s.created_at ? new Date(s.created_at).toLocaleString() : ''} · {s.status}
+                    </div>
+                  </div>
+                  <div className="row">
+                    {s.last_activity && <span className="badge">最近活动：{new Date(s.last_activity).toLocaleString()}</span>}
+                    <button className="btn btn-sm" onClick={() => s.status !== 'archived' && setSessionId(s.id)} disabled={s.status === 'archived'}>
+                      <i className="ri-arrow-right-circle-line" style={{ marginRight: 4 }} />{s.status === 'archived' ? '已归档' : '进入'}
+                    </button>
+                    {s.status !== 'archived' ? (
+                      <button className="btn btn-sm" onClick={async () => { try { await api(`/sessions/${s.id}/status?status=archived`, { method: 'POST' }); await loadMySessions() } catch (e: any) { setMessage(`归档失败：${String(e)}`) } }}>
+                        <i className="ri-inbox-archive-line" style={{ marginRight: 4 }} />归档
+                      </button>
+                    ) : (
+                      <button className="btn btn-sm" onClick={async () => { try { await api(`/sessions/${s.id}/status?status=active`, { method: 'POST' }); await loadMySessions() } catch (e: any) { setMessage(`恢复失败：${String(e)}`) } }}>
+                        <i className="ri-inbox-unarchive-line" style={{ marginRight: 4 }} />恢复
+                      </button>
+                    )}
+                    {s.created_by_me && (
+                      <button className="btn btn-sm btn-danger" onClick={async () => {
+                        if (!confirm(`确定删除 Session #${s.id} 吗？此操作不可恢复`)) return
+                        try { await api(`/sessions/${s.id}`, { method: 'DELETE' }); await loadMySessions() } catch (e: any) { setMessage(`删除失败：${String(e)}`) }
+                      }}>
+                        <i className="ri-delete-bin-6-line" style={{ marginRight: 4 }} />删除
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -954,10 +1027,29 @@ function Quiz({ sessionId }: { sessionId: number }) {
   const [board, setBoard] = useState<any>(null)
   const [detail, setDetail] = useState<any>(null)
   const [wrong, setWrong] = useState<any[]>([])
-  const [mode, setMode] = useState<'random' | 'zh2en' | 'en2zh'>('random')
+  const [mode, setMode] = useState<'random' | 'zh2en' | 'en2zh'>(() => {
+    try {
+      const key = `quizMode_${sessionId}`
+      const saved = localStorage.getItem(key)
+      if (saved === 'random' || saved === 'zh2en' || saved === 'en2zh') return saved
+    } catch {}
+    return 'random'
+  })
   // Track questions already answered in this run
   const seenRef = useRef<Set<number>>(new Set())
   const [finished, setFinished] = useState(false)
+
+  // Persist mode per session and reload when session changes
+  useEffect(() => {
+    try { localStorage.setItem(`quizMode_${sessionId}`, mode) } catch {}
+  }, [mode, sessionId])
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`quizMode_${sessionId}`)
+      if (saved === 'random' || saved === 'zh2en' || saved === 'en2zh') setMode(saved)
+      else setMode('random')
+    } catch { setMode('random') }
+  }, [sessionId])
 
   const loadNext = async () => {
     setAnswer('')
