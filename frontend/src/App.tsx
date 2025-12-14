@@ -806,6 +806,22 @@ function StartSession() {
   const [joinId, setJoinId] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [wordlists, setWordlists] = useState<any[]>([])
+  const [listsLoading, setListsLoading] = useState(false)
+
+  const loadWordlists = async () => {
+    setListsLoading(true)
+    try {
+      const data = await api('/wordlists')
+      setWordlists(data)
+    } catch (e: any) {
+      setMessage(`加载词库失败：${String(e)}`)
+    } finally {
+      setListsLoading(false)
+    }
+  }
+
+  useEffect(() => { loadWordlists() }, [])
 
   const create = async () => {
     setMessage('')
@@ -850,9 +866,23 @@ function StartSession() {
     <div className="card stack">
       <h3 className="card-title">创建异步打卡</h3>
       <div className="row">
-        <input className="input" placeholder="词库ID" value={wordlistId} onChange={e => setWordlistId(e.target.value)} />
+        <select
+          className="input"
+          value={wordlistId}
+          onChange={e => setWordlistId(e.target.value)}
+          disabled={listsLoading}
+        >
+          <option value="" disabled>{listsLoading ? '加载词库中…' : '选择词库'}</option>
+          {wordlists.map((wl: any) => (
+            <option key={wl.id} value={String(wl.id)}>
+              {wl.name}（ID: {wl.id}）
+            </option>
+          ))}
+        </select>
         <input className="input" placeholder="好友用户名" value={friend} onChange={e => setFriend(e.target.value)} />
-        <button className="btn btn-primary" onClick={create} disabled={loading}>{loading ? '创建中…' : '创建'}</button>
+        <button className="btn btn-primary" onClick={create} disabled={loading || !wordlistId}>
+          {loading ? '创建中…' : '创建'}
+        </button>
         {sessionId && (
           <>
             <span className="badge">Session #{sessionId}</span>
