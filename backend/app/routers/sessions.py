@@ -502,7 +502,12 @@ def progress(session_id: int, db: Session = Depends(get_db), user: User = Depend
 
 
 @router.get("/sessions/{session_id}/wrongbook")
-def wrongbook(session_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, Any]]:
+def wrongbook(
+    session_id: int,
+    mine_only: bool = True,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
     """
     获取会话的错题本（按单词聚合）。
 
@@ -510,17 +515,23 @@ def wrongbook(session_id: int, db: Session = Depends(get_db), user: User = Depen
 
     Get the session wrongbook aggregated by word.
 
-    Returns words that were answered incorrectly in this session, along with the
-    user IDs who missed them. Useful for targeted reviews.
+    By default (mine_only=True), it returns only the words the current user
+    answered incorrectly in this session. Set `mine_only=false` to see the
+    combined view (words anyone answered incorrectly) with `wrong_by` listing
+    user IDs. Useful for targeted reviews.
 
     Args:
       session_id (int): 会话 ID；Target session ID.
+      mine_only (bool): 是否仅返回“我”的错题（默认 True）。Set to False for combined view.
       db (Session): 数据库会话依赖；Database session dependency.
       user (User): 当前认证用户依赖；Current authenticated user dependency.
 
     Returns:
-      list[dict[str, Any]]: 每项包含 `word_id`、`term`、`definition`、`example`、`wrong_by`；
-        A list of dicts with `word_id`, `term`, `definition`, `example`, `wrong_by`.
+      list[dict[str, Any]]:
+        - 默认 mine_only=True：每项包含 `word_id`、`term`、`definition`、`example`；
+        - 若 mine_only=False：再包含 `wrong_by`（哪些用户答错）。
+        Default mine_only=True: each item has `word_id`, `term`, `definition`, `example`.
+        When mine_only=False, includes `wrong_by` (user IDs who missed it).
 
     Raises:
       HTTPException: 404 当会话不存在或无权限；
@@ -529,7 +540,11 @@ def wrongbook(session_id: int, db: Session = Depends(get_db), user: User = Depen
     sess = db.get(StudySession, session_id)
     if not sess or user.id not in [sess.user_a_id, sess.user_b_id]:
         raise HTTPException(status_code=404, detail="Session not found")
-    rows = db.exec(select(Attempt).where(Attempt.session_id == sess.id, Attempt.correct == False)).all()  # noqa: E712
+    # Fetch incorrect attempts in this session (optionally filter to current user)
+    stmt = select(Attempt).where(Attempt.session_id == sess.id, Attempt.correct == False)  # noqa: E712
+    if mine_only:
+        stmt = stmt.where(Attempt.user_id == user.id)
+    rows = db.exec(stmt).all()
     # Aggregate by word
     wrong_by_word: dict[int, set[int]] = defaultdict(set)
     for r in rows:
@@ -539,11 +554,14 @@ def wrongbook(session_id: int, db: Session = Depends(get_db), user: User = Depen
         w = db.get(Word, wid)
         if not w:
             continue
-        out.append({
+        item = {
             "word_id": w.id,
             "term": w.term,
             "definition": w.definition,
             "example": w.example,
-            "wrong_by": list(userset),
-        })
+        }
+        # Only expose aggregated users when explicitly requested
+        if not mine_only:
+            item["wrong_by"] = list(userset)
+        out.append(item)
     return out
