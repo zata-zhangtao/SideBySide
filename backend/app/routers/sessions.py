@@ -30,6 +30,7 @@ Typical usage: two users practice asynchronously; the frontend fetches next item
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -37,13 +38,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from ..core.logging import get_logger
 from ..deps import get_current_user, get_db
 from ..models import Attempt, StudySession, User, Word, WordList
 from ..services.agents import judge_definitions
-import logging
-_sess_logger = logging.getLogger("routers.sessions")
-import os
 
+# Initialize unified logger
+_sess_logger = get_logger(__name__)
 
 router = APIRouter()
 

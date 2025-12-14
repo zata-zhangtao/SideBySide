@@ -23,12 +23,14 @@ Definition Similarity Judge Agent
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List, TypedDict
-import logging
 
 import dashscope
+
+from app.core.logging import get_logger
 
 # Optional LangSmith tracing (best-effort). Enable with env:
 #   LANGSMITH_ENABLED=1 and provide LANGSMITH_API_KEY or LANGCHAIN_API_KEY
@@ -38,20 +40,8 @@ try:  # lazy import to avoid hard dependency
 except Exception:  # pragma: no cover - optional dependency
     _ls_trace = None  # type: ignore
 
-# basic logger
-_logger = logging.getLogger("agents.definition_judge")
-_level = (os.getenv("AGENT_LOG_LEVEL") or "").upper()
-if not _level and (os.getenv("LLM_DEBUG") or "").strip().lower() in ("1", "true", "yes", "on"):
-    _level = "DEBUG"
-if _level:
-    try:
-        _logger.setLevel(getattr(logging, _level, logging.INFO))
-    except Exception:
-        _logger.setLevel(logging.INFO)
-if not _logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
-    _logger.addHandler(_handler)
+# Initialize unified logger
+_logger = get_logger(__name__)
 
 
 

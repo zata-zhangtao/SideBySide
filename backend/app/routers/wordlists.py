@@ -23,11 +23,14 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadF
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from ..core.logging import get_logger
 from ..deps import get_current_user, get_db
 from ..models import User, Word, WordList
 from ..utils.parser import sniff_and_parse
 from ..services.agents import extract_vocabulary_from_image
 
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -74,6 +77,7 @@ def create_wordlist(
     db.add(wl)
     db.commit()
     db.refresh(wl)
+    logger.info(f"Created wordlist '{name}' (id={wl.id}) for user {user.id}")
     return {"id": wl.id, "name": wl.name, "description": wl.description}
 
 
@@ -118,6 +122,8 @@ async def upload_words(
         raise HTTPException(status_code=404, detail="Wordlist not found")
 
     data = await file.read()
+    logger.info(f"Uploading file '{file.filename}' ({len(data)} bytes) to wordlist {list_id}")
+
     rows = sniff_and_parse(data, file.filename)
     created = 0
     for r in rows:
@@ -130,6 +136,7 @@ async def upload_words(
         db.add(w)
         created += 1
     db.commit()
+    logger.info(f"Imported {created} words from '{file.filename}' to wordlist {list_id}")
     return {"message": f"Imported {created} words"}
 
 
@@ -171,14 +178,19 @@ async def create_from_image(
     db.add(wl)
     db.commit()
     db.refresh(wl)
+    logger.info(f"Created wordlist '{name}' (id={wl.id}) for image extraction")
 
     # Run extraction
     data = await file.read()
+    logger.info(f"Extracting words from image '{file.filename}' ({len(data)} bytes)")
+
     try:
         rows = extract_vocabulary_from_image(data)
     except ImportError:
+        logger.error(f"LLM provider not configured for image extraction")
         raise HTTPException(status_code=400, detail="LLM provider not configured. Install provider SDK and set env.")
     except Exception as e:
+        logger.error(f"Failed to extract words from image: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to extract words: {e}")
 
     created = 0
@@ -192,6 +204,7 @@ async def create_from_image(
         db.add(w)
         created += 1
     db.commit()
+    logger.info(f"Extracted and saved {created} words from image to wordlist {wl.id}")
 
     return {"id": wl.id, "name": wl.name, "message": f"Extracted {created} items from image"}
 
@@ -221,12 +234,15 @@ def delete_wordlist(
     # Delete all words in the wordlist first
     words = db.exec(select(Word).where(Word.list_id == wl.id)).all()
     word_count = len(words)
+    logger.info(f"Deleting wordlist '{wl.name}' (id={list_id}) with {word_count} words")
+
     for word in words:
         db.delete(word)
 
     # Delete the wordlist
     db.delete(wl)
     db.commit()
+    logger.info(f"Successfully deleted wordlist '{wl.name}' (id={list_id}) and {word_count} words")
 
     return {"message": f"Deleted wordlist '{wl.name}' and {word_count} words"}
 
@@ -279,11 +295,15 @@ async def preview_from_image(
         提取的单词列表（未保存）List of extracted words (not saved)
     """
     data = await file.read()
+    logger.info(f"Previewing word extraction from image '{file.filename}' ({len(data)} bytes)")
+
     try:
         rows = extract_vocabulary_from_image(data)
     except ImportError:
+        logger.error("LLM provider not configured for preview")
         raise HTTPException(status_code=400, detail="LLM provider not configured. Install provider SDK and set env.")
     except Exception as e:
+        logger.error(f"Failed to extract words for preview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to extract words: {e}")
 
     # Return extracted words without saving
@@ -298,6 +318,7 @@ async def preview_from_image(
             "example": (r.get("example") or None) or None,
         })
 
+    logger.info(f"Preview extracted {len(result)} words from image")
     return result
 
 
@@ -374,6 +395,8 @@ async def save_words(
     if not wl or wl.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Wordlist not found")
 
+    logger.info(f"Batch saving {len(words)} words to wordlist {list_id}")
+
     created = 0
     for word_input in words:
         term = word_input.term.strip()
@@ -389,6 +412,7 @@ async def save_words(
         created += 1
 
     db.commit()
+    logger.info(f"Successfully saved {created} words to wordlist {list_id}")
     return {"message": f"Saved {created} words", "count": created}
 
 
@@ -409,6 +433,7 @@ async def _process_single_image(file_data: bytes, filename: str, index: int, tas
         # 更新任务状态
         batch_tasks[task_id]["current_image"] = filename
         batch_tasks[task_id]["current_index"] = index
+        logger.debug(f"[Batch {task_id}] Processing image {index}: {filename}")
 
         # 提取词汇
         rows = await asyncio.to_thread(extract_vocabulary_from_image, file_data)
@@ -427,6 +452,7 @@ async def _process_single_image(file_data: bytes, filename: str, index: int, tas
 
         # 更新完成状态
         batch_tasks[task_id]["completed"] += 1
+        logger.info(f"[Batch {task_id}] Successfully processed image {index}: {filename} - extracted {len(result)} words")
 
         return {
             "filename": filename,
@@ -438,6 +464,7 @@ async def _process_single_image(file_data: bytes, filename: str, index: int, tas
     except Exception as e:
         batch_tasks[task_id]["completed"] += 1
         batch_tasks[task_id]["errors"] += 1
+        logger.error(f"[Batch {task_id}] Failed to process image {index}: {filename} - {e}", exc_info=True)
         return {
             "filename": filename,
             "index": index,
@@ -476,6 +503,7 @@ async def batch_preview_from_images(
 
     # 生成任务ID
     task_id = str(uuid.uuid4())
+    logger.info(f"Starting batch image processing: task_id={task_id}, files={len(files)}")
 
     # 读取所有文件数据（在请求上下文中，文件仍然打开）
     # Read all file data while in request context (files are still open)
@@ -502,6 +530,7 @@ async def batch_preview_from_images(
     # Process all images asynchronously (pass pre-read byte data)
     asyncio.create_task(_process_batch(task_id, file_data_list))
 
+    logger.info(f"[Batch {task_id}] Task created and started processing {len(files)} images")
     return {
         "task_id": task_id,
         "total": len(files),
@@ -523,6 +552,7 @@ async def _process_batch(task_id: str, file_data_list: List[tuple[bytes, str]]) 
     """
     # 限制并发数量（最多3个并发请求）
     semaphore = asyncio.Semaphore(3)
+    logger.info(f"[Batch {task_id}] Starting parallel processing of {len(file_data_list)} images (max 3 concurrent)")
 
     async def process_with_semaphore(file_data: bytes, filename: str, index: int):
         async with semaphore:
@@ -536,6 +566,11 @@ async def _process_batch(task_id: str, file_data_list: List[tuple[bytes, str]]) 
     batch_tasks[task_id]["results"] = results
     batch_tasks[task_id]["status"] = "completed"
     batch_tasks[task_id]["completed_at"] = datetime.now().isoformat()
+
+    # Log summary
+    total_words = sum(r.get("count", 0) for r in results)
+    errors = batch_tasks[task_id]["errors"]
+    logger.info(f"[Batch {task_id}] Batch processing completed: {len(results)} images processed, {total_words} total words extracted, {errors} errors")
 
 
 @router.get("/wordlists/batch_status/{task_id}")

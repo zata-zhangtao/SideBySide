@@ -8,7 +8,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy import inspect, text
 
 from .core.config import settings
+from .core.logging import get_logger
 
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 engine: Engine = create_engine(
     settings.DATABASE_URL,
@@ -25,6 +28,7 @@ def _apply_minimal_migrations() -> None:
     """
     dialect = engine.dialect.name  # 'sqlite' | 'postgresql' | ...
     inspector = inspect(engine)
+    logger.debug(f"Running database migrations for dialect: {dialect}")
 
     # Table -> { column: logical_type }
     expected: dict[str, dict[str, str]] = {
@@ -78,12 +82,15 @@ def _apply_minimal_migrations() -> None:
         return f'"{ident}"'
 
     existing_tables = set(inspector.get_table_names())
+    logger.debug(f"Existing tables: {existing_tables}")
 
+    columns_added = 0
     with engine.begin() as conn:
         for table, cols in expected.items():
             if table not in existing_tables:
                 # If table didn't exist before, create_all() below will create it with full schema
                 # Skip here; a second reflection would find it but no extra action is needed.
+                logger.debug(f"Table '{table}' does not exist yet, will be created by create_all()")
                 continue
             existing_cols = {c["name"] for c in inspector.get_columns(table)}
             for col, ltype in cols.items():
@@ -91,14 +98,30 @@ def _apply_minimal_migrations() -> None:
                     continue
                 sql_type = type_map.get(dialect, type_map["sqlite"]).get(ltype, "TEXT")
                 alter = f"ALTER TABLE {q(table)} ADD COLUMN {q(col)} {sql_type}"
+                logger.info(f"Adding missing column: {table}.{col} ({sql_type})")
                 conn.exec_driver_sql(alter)
+                columns_added += 1
+
+    if columns_added > 0:
+        logger.info(f"Database migrations completed: {columns_added} columns added")
+    else:
+        logger.debug("Database migrations completed: no changes needed")
 
 
 def init_db() -> None:
-    # Create any missing tables first
-    SQLModel.metadata.create_all(engine)
-    # Then add any missing columns on existing tables (non-destructive)
-    _apply_minimal_migrations()
+    """Initialize database: create tables and run migrations."""
+    logger.info("Initializing database")
+    try:
+        # Create any missing tables first
+        SQLModel.metadata.create_all(engine)
+        logger.debug("Database tables created/verified")
+
+        # Then add any missing columns on existing tables (non-destructive)
+        _apply_minimal_migrations()
+        logger.info("Database initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}", exc_info=True)
+        raise
 
 
 @contextmanager

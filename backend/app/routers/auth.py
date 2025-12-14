@@ -7,10 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
+from ..core.logging import get_logger
 from ..core.security import create_access_token, get_password_hash, verify_password
 from ..deps import get_db
 from ..models import User
 
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -43,8 +46,7 @@ def register(
     except HTTPException:
         raise
     except Exception as e:  # pragma: no cover
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Registration failed for username '{username}': {e}")
         raise HTTPException(status_code=500, detail=f"Register failed: {e}")
 
 

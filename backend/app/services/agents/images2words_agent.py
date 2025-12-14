@@ -24,6 +24,11 @@ from typing import Any, Dict, List, TypedDict
 import dashscope
 from langgraph.graph import END, START, StateGraph
 
+from app.core.logging import get_logger
+
+# Initialize logger for this module
+logger = get_logger(__name__)
+
 
 # 模型名称配置
 # 对于多模态（图片）任务，使用视觉语言模型
@@ -265,9 +270,9 @@ def node_extract_words(state: ImageState) -> ImageState:
 
         # 检查响应状态
         if hasattr(response, "status_code") and response.status_code != 200:
-            print(f"[提取节点] API调用失败，状态码: {response.status_code}")
+            logger.error(f"[提取节点] API调用失败，状态码: {response.status_code}")
             if hasattr(response, "message"):
-                print(f"[提取节点] 错误信息: {response.message}")
+                logger.error(f"[提取节点] 错误信息: {response.message}")
             return {"extracted_items": []}
 
         # 提取响应文本
@@ -275,10 +280,10 @@ def node_extract_words(state: ImageState) -> ImageState:
 
         # Debug输出
         if os.getenv("LLM_DEBUG", "").lower() in ("1", "true", "yes"):
-            print(f"[提取节点] 原始响应类型: {type(response)}")
+            logger.debug(f"[提取节点] 原始响应类型: {type(response)}")
             if hasattr(response, "__dict__"):
-                print(f"[提取节点] 响应属性: {list(response.__dict__.keys())}")
-            print(f"[提取节点] 提取的文本前500字符: {text[:500]}")
+                logger.debug(f"[提取节点] 响应属性: {list(response.__dict__.keys())}")
+            logger.debug(f"[提取节点] 提取的文本前500字符: {text[:500]}")
 
         # 清理文本（移除可能的代码块标记）
         text = text.strip()
@@ -316,11 +321,11 @@ def node_extract_words(state: ImageState) -> ImageState:
                         "example": item.get("example") or None
                     })
 
-        print(f"[提取节点] 识别到 {len(extracted_items)} 个单词")
+        logger.info(f"[提取节点] 识别到 {len(extracted_items)} 个单词")
         return {"extracted_items": extracted_items}
 
     except Exception as e:
-        print(f"[提取节点] 错误: {e}")
+        logger.error(f"[提取节点] 错误: {e}", exc_info=True)
         return {"extracted_items": []}
 
 
@@ -372,7 +377,7 @@ def node_complete_info(state: ImageState) -> ImageState:
 
     # 如果没有需要补充的，直接返回
     if not incomplete_items:
-        print(f"[补充节点] 所有 {len(complete_items)} 个单词信息完整，无需补充")
+        logger.info(f"[补充节点] 所有 {len(complete_items)} 个单词信息完整，无需补充")
         return {"completed_items": complete_items}
 
     # 批量补充：构建批量请求
@@ -461,10 +466,10 @@ def node_complete_info(state: ImageState) -> ImageState:
                 "example": example.strip() if isinstance(example, str) and example else None
             })
 
-        print(f"[补充节点] 批量完成 {len(incomplete_items)} 个单词的信息补充")
+        logger.info(f"[补充节点] 批量完成 {len(incomplete_items)} 个单词的信息补充")
 
     except Exception as e:
-        print(f"[补充节点] 批量处理失败，回退到逐个处理: {e}")
+        logger.warning(f"[补充节点] 批量处理失败，回退到逐个处理: {e}")
         # 回退：逐个处理
         for item in incomplete_items:
             term = item["term"]
@@ -523,7 +528,7 @@ def node_complete_info(state: ImageState) -> ImageState:
                         if ex_match:
                             example = ex_match.group(1)
             except Exception as e2:
-                print(f"[补充节点] 为单词 '{term}' 生成信息时出错: {e2}")
+                logger.error(f"[补充节点] 为单词 '{term}' 生成信息时出错: {e2}")
 
             complete_items.append({
                 "term": term,
@@ -531,7 +536,7 @@ def node_complete_info(state: ImageState) -> ImageState:
                 "example": example.strip() if isinstance(example, str) and example else None
             })
 
-    print(f"[补充节点] 完成 {len(complete_items)} 个单词的信息补充")
+    logger.info(f"[补充节点] 完成 {len(complete_items)} 个单词的信息补充")
     return {"completed_items": complete_items}
 
 
