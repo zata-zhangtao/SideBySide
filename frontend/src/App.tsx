@@ -807,7 +807,11 @@ function StartSession() {
   const [friend, setFriend] = useState('')
   const [ratio, setRatio] = useState(50) // zh->en percentage when random
   const [practiceRatio, setPracticeRatio] = useState(100) // percentage of words to include
-  const [sessionId, setSessionId] = useState<number | null>(null)
+  const [sessionId, setSessionId] = useState<number | null>(() => {
+    const saved = localStorage.getItem('activeSessionId')
+    const n = saved ? Number(saved) : null
+    return n != null && !isNaN(n) ? n : null
+  })
   const [joinId, setJoinId] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
@@ -827,6 +831,26 @@ function StartSession() {
   }
 
   useEffect(() => { loadWordlists() }, [])
+
+  // Persist/restore current session id
+  useEffect(() => {
+    if (sessionId != null) localStorage.setItem('activeSessionId', String(sessionId))
+    else localStorage.removeItem('activeSessionId')
+  }, [sessionId])
+  useEffect(() => {
+    // Validate saved session on first mount
+    const saved = localStorage.getItem('activeSessionId')
+    if (saved) {
+      const n = Number(saved)
+      if (!isNaN(n)) {
+        api(`/sessions/${n}`).catch(() => {
+          localStorage.removeItem('activeSessionId')
+          setSessionId(null)
+          setMessage('原有 Session 已失效或无访问权限')
+        })
+      }
+    }
+  }, [])
 
   const create = async () => {
     setMessage('')
@@ -868,6 +892,11 @@ function StartSession() {
       setMessage('复制失败，请手动复制 Session ID')
     }
   }
+  const leave = () => {
+    setSessionId(null)
+    localStorage.removeItem('activeSessionId')
+    setMessage('已退出当前 Session')
+  }
 
   return (
     <div className="card stack">
@@ -903,7 +932,8 @@ function StartSession() {
         {sessionId && (
           <>
             <span className="badge">Session #{sessionId}</span>
-            <button className="btn" onClick={copyId}>复制ID</button>
+            <button className="btn" onClick={copyId}><i className="ri-file-copy-line" style={{ marginRight: 6 }} />复制ID</button>
+            <button className="btn" onClick={leave}><i className="ri-close-circle-line" style={{ marginRight: 6 }} />退出会话</button>
           </>
         )}
       </div>
@@ -1143,7 +1173,33 @@ function Friends() {
 export default function App() {
   const { token, setToken } = useToken()
   const [me, setMe] = useState<any>(null)
-  const [tab, setTab] = useState<'upload'|'session'|'leaderboard'|'report'|'friends'>('upload')
+  type Tab = 'upload'|'session'|'leaderboard'|'report'|'friends'
+  const validTabs = new Set<Tab>(['upload','session','leaderboard','report','friends'])
+  const getInitialTab = (): Tab => {
+    const fromHash = (location.hash || '').replace(/^#/, '') as Tab
+    if (validTabs.has(fromHash)) return fromHash
+    const saved = localStorage.getItem('activeTab') as Tab | null
+    if (saved && validTabs.has(saved)) return saved
+    return 'upload'
+  }
+  const [tab, setTab] = useState<Tab>(getInitialTab)
+
+  // Persist tab to URL hash and localStorage; react to back/forward
+  useEffect(() => {
+    const newHash = `#${tab}`
+    if (location.hash !== newHash) {
+      history.replaceState(null, '', newHash)
+    }
+    localStorage.setItem('activeTab', tab)
+  }, [tab])
+  useEffect(() => {
+    const onHash = () => {
+      const h = (location.hash || '').replace(/^#/, '') as Tab
+      if (validTabs.has(h) && h !== tab) setTab(h)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [tab])
 
   useEffect(() => { if (token) api('/users/me').then(setMe).catch(() => setMe(null)) }, [token])
 
