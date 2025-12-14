@@ -39,7 +39,6 @@ from sqlmodel import Session, select
 
 from ..deps import get_current_user, get_db
 from ..models import Attempt, StudySession, User, Word, WordList
-from ..services.llm_enrich import try_generate_example
 
 
 router = APIRouter()
@@ -275,8 +274,6 @@ def submit_attempt(
     db.refresh(att)
 
     example = word.example
-    if not example and not correct:
-        example = try_generate_example(word.term, word.definition) or None
 
     # In en2zh mode, reveal correct Chinese definition; otherwise show term
     return {

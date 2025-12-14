@@ -25,9 +25,9 @@ Env
 - `DATABASE_URL` (default: `sqlite:///./backend/data.db`)
 - `SECRET_KEY` (default insecure dev key; set in prod!)
 - `CORS_ORIGINS` comma separated origins (default: http://localhost:5173)
-- Optional LLM (for example sentences when missing):
+- Optional LLM (for 图片建库 image → wordlist):
   - See `backend/llm_api_loader/` and set provider envs accordingly.
-  - For 图片建库 (image → wordlist), install provider SDK and set envs:
+  - For 图片建库, install provider SDK and set envs:
     - `pip install dashscope python-dotenv`
     - Env: `LLM_PROVIDER=qwen`, `DASHSCOPE_API_KEY=...`, optional `MODEL_NAME=qwen3-vl-plus`
     - Endpoint: `POST /api/wordlists/from_image` (multipart: `name`, `file`)
