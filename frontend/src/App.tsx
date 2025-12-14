@@ -120,6 +120,7 @@ function UploadWordlist() {
   const [isBatchMode, setIsBatchMode] = useState(false)
   const [batchResults, setBatchResults] = useState<BatchImageResult[]>([])
   const [expandedImage, setExpandedImage] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState(false)
 
   const loadWordlists = async () => {
     try {
@@ -421,10 +422,11 @@ function UploadWordlist() {
       setImgFile(imageFiles[0])
       setMessage('已选择图片（拖拽）')
     }
+    setDragOver(false)
   }
-  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-  }
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); if (!dragOver) setDragOver(true) }
+  const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(true) }
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => { if (e.currentTarget === e.target) setDragOver(false) }
 
   const handleMultipleImages = (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -480,7 +482,7 @@ function UploadWordlist() {
       {isPreviewMode ? (
         <div className="stack">
           <h4>预览单词 (共 {previewWords.length} 个)</h4>
-          <div style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid #ddd', borderRadius: '4px', padding: '12px' }}>
+          <div className="card scroll surface-subtle" style={{ maxHeight: '400px', padding: '12px' }}>
             {previewWords.length === 0 ? (
               <div className="muted">没有单词</div>
             ) : (
@@ -500,7 +502,7 @@ function UploadWordlist() {
           </div>
 
           {/* 添加新单词 */}
-          <div className="card" style={{ background: '#f9f9f9', padding: '12px' }}>
+          <div className="card surface-subtle" style={{ padding: '12px' }}>
             <h5 style={{ margin: '0 0 8px 0' }}>添加新单词</h5>
             <div className="stack">
               <input className="input" placeholder="单词 *" value={newTerm} onChange={e => setNewTerm(e.target.value)} />
@@ -529,15 +531,15 @@ function UploadWordlist() {
 
           {/* 词库列表 */}
           {showList && (
-            <div className="card stack" style={{ background: '#f5f5f5', padding: '12px' }}>
+          <div className="card stack surface-subtle" style={{ padding: '12px' }}>
               <h4 style={{ margin: '0 0 8px 0' }}>我的词库</h4>
               {wordlists.length === 0 ? (
                 <div className="muted">暂无词库</div>
               ) : (
-                <div className="stack">
+                <div className="list">
                   {wordlists.map((wl: any) => (
                     <div key={wl.id} style={{ marginBottom: '8px' }}>
-                      <div className="row" style={{ alignItems: 'center', cursor: 'pointer', padding: '8px', background: 'white', borderRadius: '4px' }}>
+                      <div className="list-item" style={{ cursor: 'pointer' }}>
                         <div style={{ flex: 1 }}>
                           <strong>{wl.name}</strong> (ID: {wl.id})
                           {wl.description && <span className="muted"> - {wl.description}</span>}
@@ -550,12 +552,12 @@ function UploadWordlist() {
                           {expandedListId === wl.id ? '收起' : '查看单词'}
                         </button>
                         <button
-                          className="btn btn-sm"
+                          className="btn btn-sm btn-danger"
                           onClick={(e) => {
                             e.stopPropagation()
                             deleteWordlist(wl.id, wl.name)
                           }}
-                          style={{ marginLeft: '8px', background: '#dc3545', color: 'white' }}
+                          style={{ marginLeft: '8px' }}
                           disabled={loading}
                         >
                           删除
@@ -564,7 +566,7 @@ function UploadWordlist() {
 
                       {/* 单词列表 */}
                       {expandedListId === wl.id && (
-                        <div style={{ marginTop: '8px', padding: '12px', background: 'white', borderRadius: '4px' }}>
+                        <div className="card surface-subtle" style={{ marginTop: '8px', padding: '12px' }}>
                           {!words[wl.id] ? (
                             <div className="muted">加载中...</div>
                           ) : words[wl.id].length === 0 ? (
@@ -645,7 +647,9 @@ function UploadWordlist() {
               {/* Single Image Mode */}
               <div className="row">
                 <input className="file" type="file" accept="image/*" onChange={e => setImgFile(e.target.files?.[0] || null)} />
-                <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别单张'}</button>
+                <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>
+                  {loading ? (<><span className="spinner" /> 正在识别…</>) : '识别单张'}
+                </button>
               </div>
 
               {/* Batch Image Mode */}
@@ -658,17 +662,17 @@ function UploadWordlist() {
                   onChange={e => handleMultipleImages(e.target.files)}
                 />
                 <button className="btn btn-primary" onClick={createFromBatchImages} disabled={imgFiles.length === 0 || loading}>
-                  {loading ? '处理中…' : `批量识别 (${imgFiles.length} 张)`}
+                  {loading ? (<><span className="spinner" /> 正在处理…</>) : `批量识别 (${imgFiles.length} 张)`}
                 </button>
               </div>
 
               {/* Image Queue Display */}
               {imgFiles.length > 0 && (
-                <div style={{ border: '1px solid #ddd', borderRadius: '4px', padding: '12px', background: '#f9f9f9' }}>
+                <div className="card surface-subtle" style={{ padding: '12px' }}>
                   <h5 style={{ margin: '0 0 8px 0' }}>待处理图片 ({imgFiles.length})</h5>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '8px', maxHeight: '200px', overflow: 'auto' }}>
                     {imgFiles.map((file, idx) => (
-                      <div key={idx} style={{ position: 'relative', border: '1px solid #ccc', borderRadius: '4px', padding: '4px', background: 'white' }}>
+                      <div key={idx} className="surface-subtle" style={{ position: 'relative', border: '1px solid var(--border)', borderRadius: '8px', padding: '4px' }}>
                         <img
                           src={URL.createObjectURL(file)}
                           alt={file.name}
@@ -692,25 +696,14 @@ function UploadWordlist() {
 
               {/* Progress Display */}
               {batchProgress && (
-                <div style={{ border: '1px solid #4caf50', borderRadius: '4px', padding: '12px', background: '#f0f8f0' }}>
+                <div className="card surface-subtle" style={{ padding: '12px' }}>
                   <h5 style={{ margin: '0 0 8px 0' }}>处理进度</h5>
-                  <div style={{ marginBottom: '8px' }}>
-                    <div style={{ background: '#e0e0e0', borderRadius: '4px', height: '20px', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          background: '#4caf50',
-                          height: '100%',
-                          width: `${(batchProgress.completed / batchProgress.total) * 100}%`,
-                          transition: 'width 0.3s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'white',
-                          fontSize: '12px'
-                        }}
-                      >
-                        {batchProgress.completed}/{batchProgress.total}
-                      </div>
+                  <div className="progress" style={{ marginBottom: '8px', height: '16px' }}>
+                    <div
+                      className="progress-bar"
+                      style={{ width: `${(batchProgress.completed / batchProgress.total) * 100}%` }}
+                    >
+                      {batchProgress.completed}/{batchProgress.total}
                     </div>
                   </div>
                   <div className="muted" style={{ fontSize: '13px' }}>
@@ -722,7 +715,7 @@ function UploadWordlist() {
 
               {/* Batch Results Display */}
               {isBatchMode && batchResults.length > 0 && !isPreviewMode && (
-                <div style={{ border: '1px solid #ddd', borderRadius: '4px', padding: '12px' }}>
+                <div className="card surface-subtle" style={{ padding: '12px' }}>
                   <h5 style={{ margin: '0 0 8px 0' }}>提取结果 (共 {previewWords.length} 个单词)</h5>
                   <div className="stack">
                     {batchResults.map((result, idx) => (
@@ -772,7 +765,16 @@ function UploadWordlist() {
 
               {/* Single Image Dropzone (when not in batch mode) */}
               {!isBatchMode && imgFiles.length === 0 && (
-                <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
+                <div
+                  ref={dropRef}
+                  className={`dropzone ${dragOver ? 'is-dragover' : ''}`}
+                  onPaste={onPaste}
+                  onDrop={onDrop}
+                  onDragOver={onDragOver}
+                  onDragEnter={onDragEnter}
+                  onDragLeave={onDragLeave}
+                  tabIndex={0}
+                >
                   {previewUrl ? (
                     <div className="stack" style={{ alignItems: 'center' }}>
                       <img className="preview" src={previewUrl} alt="预览" />
