@@ -908,18 +908,37 @@ function Quiz({ sessionId }: { sessionId: number }) {
   const [detail, setDetail] = useState<any>(null)
   const [wrong, setWrong] = useState<any[]>([])
   const [mode, setMode] = useState<'random' | 'zh2en' | 'en2zh'>('random')
+  // Track questions already answered in this run
+  const seenRef = useRef<Set<number>>(new Set())
+  const [finished, setFinished] = useState(false)
 
   const loadNext = async () => {
-    const dirParam = mode === 'random' ? '' : `?direction=${mode}`
-    const w = await api(`/sessions/${sessionId}/next_word${dirParam}`)
-    setWord(w)
     setAnswer('')
     setResult(null)
+    setFinished(false)
+    const dirParam = mode === 'random' ? '' : `?direction=${mode}`
+    let picked: any = null
+    // Try multiple times to avoid repeating answered questions
+    for (let i = 0; i < 20; i++) {
+      const cand = await api(`/sessions/${sessionId}/next_word${dirParam}`)
+      if (!cand || typeof cand.word_id !== 'number') { picked = cand; break }
+      if (!seenRef.current.has(cand.word_id)) { picked = cand; break }
+    }
+    if (!picked || typeof picked.word_id !== 'number' || seenRef.current.has(picked.word_id)) {
+      // Likely exhausted all items this round
+      setWord(null)
+      setFinished(true)
+      refresh()
+      return
+    }
+    setWord(picked)
     refresh()
   }
   const submit = async () => {
     const r = await api(`/sessions/${sessionId}/attempts?word_id=${word.word_id}&answer=${encodeURIComponent(answer)}&direction=${encodeURIComponent(word.direction || 'zh2en')}`, { method: 'POST' })
     setResult(r)
+    // Mark this word as answered for this run (no repeat)
+    try { if (word?.word_id) seenRef.current.add(Number(word.word_id)) } catch {}
     refresh()
     // Auto-advance on correct answer after a short pause
     if (r?.correct) {
@@ -955,7 +974,7 @@ function Quiz({ sessionId }: { sessionId: number }) {
         <button className={`btn btn-sm ${mode === 'en2zh' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('en2zh')}>英 → 中</button>
         <button className="btn btn-sm" onClick={loadNext}>换题</button>
       </div>
-      {word && (
+      {!finished && word && (
         <div className="card stack">
           {word.direction === 'en2zh' ? (
             <>
@@ -984,6 +1003,14 @@ function Quiz({ sessionId }: { sessionId: number }) {
             />
             <button className="btn btn-primary" onClick={submit}>提交</button>
             <button className="btn" onClick={loadNext}>换一个</button>
+          </div>
+        </div>
+      )}
+      {finished && (
+        <div className="alert alert-success">
+          本轮题目已完成，已作答的题不会再次出现。
+          <div style={{ marginTop: 8 }}>
+            <button className="btn btn-sm" onClick={() => { seenRef.current.clear(); setFinished(false); loadNext() }}>重新开始本轮</button>
           </div>
         </div>
       )}
