@@ -39,6 +39,10 @@ from sqlmodel import Session, select
 
 from ..deps import get_current_user, get_db
 from ..models import Attempt, StudySession, User, Word, WordList
+from ..services.agents import judge_definitions
+import logging
+_sess_logger = logging.getLogger("routers.sessions")
+import os
 
 
 router = APIRouter()
@@ -256,6 +260,7 @@ def submit_attempt(
     dir_eff = (direction or "zh2en").lower()
     normalized_ans = _norm_generic(answer or "")
 
+    judge_detail = None  # will always attach later with a default
     if dir_eff == "en2zh":
         expected = _norm_generic(word.definition or "")
         # allow minor variance: treat as correct if equal or one contains the other
@@ -264,9 +269,57 @@ def submit_attempt(
                 normalized_ans and (normalized_ans in expected or expected in normalized_ans)
             )
         )
+        # Optional semantic fallback via LLM
+        def _truthy(name: str) -> bool:
+            v = (os.getenv(name) or "").strip().lower()
+            return v in ("1", "true", "yes", "on")
+
+        use_llm = _truthy("USE_LLM_JUDGE_EN2ZH")
+        has_ref = bool((word.definition or "").strip())
+        if correct:
+            judge_detail = {"used": False, "reason": "rule_based_correct"}
+        elif not has_ref:
+            judge_detail = {"used": False, "reason": "no_reference_definition"}
+        elif not use_llm:
+            judge_detail = {"used": False, "reason": "disabled"}
+        else:
+            try:
+                strictness = (os.getenv("LLM_JUDGE_STRICTNESS") or "medium").strip().lower()
+                treat_partial = _truthy("LLM_JUDGE_TREAT_PARTIAL_AS_CORRECT")
+                items = [{"term": word.term, "definition": word.definition or ""}]
+                answers = {word.term: answer or ""}
+                judged = judge_definitions(items, answers, strictness=strictness, language="zh")
+                if judged:
+                    r0 = judged[0]
+                    verdict = str(r0.get("verdict") or "").lower()
+                    is_match = bool(r0.get("is_match"))
+                    if is_match or verdict == "correct" or (treat_partial and verdict == "partial"):
+                        correct = True
+                    judge_detail = {
+                        "used": True,
+                        "strictness": strictness,
+                        "verdict": verdict,
+                        "score": r0.get("score"),
+                        "reason": r0.get("reason"),
+                        "missing_keywords": r0.get("missing_keywords"),
+                    }
+                    try:
+                        _sess_logger.info(
+                            f"LLM judge en2zh word_id={word.id} accepted={correct} verdict={verdict} score={r0.get('score')}"
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                judge_detail = {"used": False, "error": "llm_judge_failed"}
+                try:
+                    _sess_logger.warning("LLM judge failed; using rule-based result")
+                except Exception:
+                    pass
     else:  # zh2en
         expected = _norm_generic(word.term or "")
         correct = bool(expected) and (normalized_ans == expected)
+        # No semantic judge in this direction by design
+        judge_detail = {"used": False, "reason": "direction_not_en2zh"}
     points = 10 if correct else 0
     att = Attempt(session_id=sess.id, user_id=user.id, word_id=word.id, answer_text=answer, correct=bool(correct), points=points)
     db.add(att)
@@ -276,7 +329,7 @@ def submit_attempt(
     example = word.example
 
     # In en2zh mode, reveal correct Chinese definition; otherwise show term
-    return {
+    out = {
         "attempt_id": att.id,
         "correct": correct,
         "points_awarded": points,
@@ -284,6 +337,12 @@ def submit_attempt(
         "definition": word.definition,
         "example": example,
     }
+    # Always attach judge_detail for client visibility
+    try:
+        out["judge_detail"] = judge_detail or {"used": False, "reason": "unknown"}
+    except Exception:
+        pass
+    return out
 
 
 @router.get("/sessions/{session_id}/scoreboard")
