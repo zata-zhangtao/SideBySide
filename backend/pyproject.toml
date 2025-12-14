@@ -16,6 +16,8 @@ dependencies = [
   "typing-extensions==4.12.2",
   "itsdangerous==2.2.0",
   "psycopg2-binary==2.9.10",
+  "langgraph>=1.0.4",
+  "dashscope>=1.25.3",
 ]
 
 [tool.uv]

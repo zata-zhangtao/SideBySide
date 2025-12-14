@@ -94,13 +94,13 @@ def extract_words_from_image(image_bytes: bytes) -> List[Dict[str, Any]]:
             data_url = f"data:image/png;base64,{img_b64}"
             messages = [
                 {"role": "system", "content": [{"text": system_prompt}]},
-                {"role": "user", "content": [{"image": {"image_url": data_url}}, {"text": prompt}]},
+                {"role": "user", "content": [{"image": data_url}, {"text": prompt}]},
             ]
     except Exception:
         data_url = f"data:image/png;base64,{img_b64}"
         messages = [
             {"role": "system", "content": [{"text": system_prompt}]},
-            {"role": "user", "content": [{"image": {"image_url": data_url}}, {"text": prompt}]},
+            {"role": "user", "content": [{"image": data_url}, {"text": prompt}]},
         ]
 
     # Call multimodal without streaming for a single payload

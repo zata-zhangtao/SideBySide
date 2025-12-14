@@ -40,7 +40,7 @@ class QwenClient:
             {
                 "role": "user",
                 "content": [
-                    {"image": {"image_url": data_url}},
+                    {"image": data_url},
                     {"text": prompt},
                 ],
             }
@@ -133,4 +133,3 @@ def load_llm_client() -> QwenClient:
     if provider in ("qwen", "dashscope", "qwen-vl", "qwen-vl-plus"):
         return QwenClient()
     raise ImportError(f"Unsupported LLM_PROVIDER: {provider!r}")
-

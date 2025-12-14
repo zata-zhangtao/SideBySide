@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from ..deps import get_current_user, get_db
 from ..models import User, Word, WordList
 from ..utils.parser import sniff_and_parse
-from ..services.vision_to_words import extract_words_from_image
+from ..services.agents import extract_vocabulary_from_image
 
 
 router = APIRouter()
@@ -89,7 +89,7 @@ async def create_from_image(
     # Run extraction
     data = await file.read()
     try:
-        rows = extract_words_from_image(data)
+        rows = extract_vocabulary_from_image(data)
     except ImportError:
         raise HTTPException(status_code=400, detail="LLM provider not configured. Install provider SDK and set env.")
     except Exception as e:
@@ -130,7 +130,7 @@ async def preview_from_image(
     """
     data = await file.read()
     try:
-        rows = extract_words_from_image(data)
+        rows = extract_vocabulary_from_image(data)
     except ImportError:
         raise HTTPException(status_code=400, detail="LLM provider not configured. Install provider SDK and set env.")
     except Exception as e:
