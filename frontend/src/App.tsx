@@ -77,11 +77,32 @@ interface PreviewWord {
   example?: string | null
 }
 
+interface BatchImageResult {
+  filename: string
+  index: number
+  status: 'success' | 'error'
+  words: PreviewWord[]
+  count: number
+  error?: string
+}
+
+interface BatchProgress {
+  task_id: string
+  total: number
+  completed: number
+  errors: number
+  current_image: string | null
+  current_index: number
+  status: 'processing' | 'completed'
+  results: BatchImageResult[]
+}
+
 function UploadWordlist() {
   const [name, setName] = useState('My Words')
   const [listId, setListId] = useState<number | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [imgFile, setImgFile] = useState<File | null>(null)
+  const [imgFiles, setImgFiles] = useState<File[]>([])
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [mode, setMode] = useState<'file' | 'image'>('file')
@@ -95,6 +116,10 @@ function UploadWordlist() {
   const [newTerm, setNewTerm] = useState('')
   const [newDefinition, setNewDefinition] = useState('')
   const [newExample, setNewExample] = useState('')
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null)
+  const [isBatchMode, setIsBatchMode] = useState(false)
+  const [batchResults, setBatchResults] = useState<BatchImageResult[]>([])
+  const [expandedImage, setExpandedImage] = useState<number | null>(null)
 
   const loadWordlists = async () => {
     try {
@@ -157,6 +182,70 @@ function UploadWordlist() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const createFromBatchImages = async () => {
+    if (!imgFiles || imgFiles.length === 0) return
+    setLoading(true)
+    setMessage('')
+    setIsBatchMode(true)
+    setBatchResults([])
+    setBatchProgress(null)
+
+    try {
+      const fd = new FormData()
+      imgFiles.forEach(file => fd.append('files', file))
+
+      const res = await fetch(`${API_BASE}/wordlists/batch_preview_from_images`, {
+        method: 'POST',
+        body: fd,
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+
+      setMessage(`开始处理 ${data.total} 张图片...`)
+
+      // Start polling for progress
+      pollBatchProgress(data.task_id)
+    } catch (e: any) {
+      setMessage(`失败：${String(e)}`)
+      setLoading(false)
+      setIsBatchMode(false)
+    }
+  }
+
+  const pollBatchProgress = async (taskId: string) => {
+    const poll = async () => {
+      try {
+        const data = await api(`/wordlists/batch_status/${taskId}`)
+        setBatchProgress(data)
+
+        if (data.status === 'completed') {
+          setBatchResults(data.results)
+          setLoading(false)
+          const successCount = data.results.filter((r: BatchImageResult) => r.status === 'success').length
+          const totalWords = data.results.reduce((sum: number, r: BatchImageResult) => sum + r.count, 0)
+          setMessage(`处理完成！成功 ${successCount}/${data.total} 张图片，共提取 ${totalWords} 个单词`)
+          // Flatten all words for bulk review
+          const allWords: PreviewWord[] = []
+          data.results.forEach((result: BatchImageResult) => {
+            if (result.status === 'success') {
+              allWords.push(...result.words)
+            }
+          })
+          setPreviewWords(allWords)
+        } else {
+          // Continue polling
+          setTimeout(() => poll(), 1000)
+        }
+      } catch (e: any) {
+        setMessage(`查询进度失败：${String(e)}`)
+        setLoading(false)
+        setIsBatchMode(false)
+      }
+    }
+    poll()
   }
 
   const previewFromFile = async () => {
@@ -284,18 +373,67 @@ function UploadWordlist() {
     e.preventDefault()
     const files = e.dataTransfer?.files
     if (!files || !files.length) return
+
+    // Check if multiple image files
+    const imageFiles: File[] = []
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
       if (f.type && f.type.startsWith('image/')) {
-        setImgFile(f)
-        setMessage('已选择图片（拖拽）')
-        break
+        imageFiles.push(f)
       }
+    }
+
+    if (imageFiles.length > 1) {
+      setImgFiles(imageFiles)
+      setMessage(`已选择 ${imageFiles.length} 张图片（拖拽）`)
+    } else if (imageFiles.length === 1) {
+      setImgFile(imageFiles[0])
+      setMessage('已选择图片（拖拽）')
     }
   }
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
   }
+
+  const handleMultipleImages = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const imageFiles: File[] = []
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].type.startsWith('image/')) {
+        imageFiles.push(files[i])
+      }
+    }
+    setImgFiles(imageFiles)
+    setMessage(`已选择 ${imageFiles.length} 张图片`)
+  }
+
+  const removeImage = (index: number) => {
+    setImgFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const saveBatchResults = async () => {
+    if (!listId) {
+      // Create wordlist first
+      try {
+        const fd = new FormData()
+        fd.set('name', name)
+        const res = await fetch(`${API_BASE}/wordlists`, {
+          method: 'POST',
+          body: fd,
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        })
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        setListId(data.id)
+        await saveWordsToList(data.id)
+      } catch (e: any) {
+        setMessage(`创建词库失败：${String(e)}`)
+      }
+    } else {
+      await saveWordsToList(listId)
+    }
+  }
+
   useEffect(() => {
     if (mode === 'image') {
       // Focus dropzone for immediate paste
@@ -462,24 +600,151 @@ function UploadWordlist() {
 
           {mode === 'image' && (
             <>
+              {/* Single Image Mode */}
               <div className="row">
                 <input className="file" type="file" accept="image/*" onChange={e => setImgFile(e.target.files?.[0] || null)} />
-                <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别'}</button>
+                <button className="btn" onClick={createFromImage} disabled={!imgFile || loading}>{loading ? '识别中…' : '识别单张'}</button>
               </div>
-              <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
-                {previewUrl ? (
-                  <div className="stack" style={{ alignItems: 'center' }}>
-                    <img className="preview" src={previewUrl} alt="预览" />
-                    <div className="muted">已准备：{imgFile?.name || '粘贴的图片'}（{imgFile ? Math.round(imgFile.size / 1024) : 0} KB）</div>
-                    <div className="muted">按 Ctrl/⌘+V 替换，或拖拽进来</div>
-                  </div>
-                ) : (
-                  <div className="stack" style={{ alignItems: 'center' }}>
-                    <div>将图片粘贴到此处（Ctrl/⌘+V）</div>
-                    <div className="muted">或拖拽图片到此处</div>
-                  </div>
-                )}
+
+              {/* Batch Image Mode */}
+              <div className="row">
+                <input
+                  className="file"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={e => handleMultipleImages(e.target.files)}
+                />
+                <button className="btn btn-primary" onClick={createFromBatchImages} disabled={imgFiles.length === 0 || loading}>
+                  {loading ? '处理中…' : `批量识别 (${imgFiles.length} 张)`}
+                </button>
               </div>
+
+              {/* Image Queue Display */}
+              {imgFiles.length > 0 && (
+                <div style={{ border: '1px solid #ddd', borderRadius: '4px', padding: '12px', background: '#f9f9f9' }}>
+                  <h5 style={{ margin: '0 0 8px 0' }}>待处理图片 ({imgFiles.length})</h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '8px', maxHeight: '200px', overflow: 'auto' }}>
+                    {imgFiles.map((file, idx) => (
+                      <div key={idx} style={{ position: 'relative', border: '1px solid #ccc', borderRadius: '4px', padding: '4px', background: 'white' }}>
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt={file.name}
+                          style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px' }}
+                        />
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => removeImage(idx)}
+                          style={{ position: 'absolute', top: '4px', right: '4px', fontSize: '10px', padding: '2px 6px' }}
+                        >
+                          ×
+                        </button>
+                        <div style={{ fontSize: '10px', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {file.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Progress Display */}
+              {batchProgress && (
+                <div style={{ border: '1px solid #4caf50', borderRadius: '4px', padding: '12px', background: '#f0f8f0' }}>
+                  <h5 style={{ margin: '0 0 8px 0' }}>处理进度</h5>
+                  <div style={{ marginBottom: '8px' }}>
+                    <div style={{ background: '#e0e0e0', borderRadius: '4px', height: '20px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          background: '#4caf50',
+                          height: '100%',
+                          width: `${(batchProgress.completed / batchProgress.total) * 100}%`,
+                          transition: 'width 0.3s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {batchProgress.completed}/{batchProgress.total}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="muted" style={{ fontSize: '13px' }}>
+                    {batchProgress.current_image && `当前: ${batchProgress.current_image}`}
+                    {batchProgress.errors > 0 && ` (失败: ${batchProgress.errors})`}
+                  </div>
+                </div>
+              )}
+
+              {/* Batch Results Display */}
+              {isBatchMode && batchResults.length > 0 && !isPreviewMode && (
+                <div style={{ border: '1px solid #ddd', borderRadius: '4px', padding: '12px' }}>
+                  <h5 style={{ margin: '0 0 8px 0' }}>提取结果 (共 {previewWords.length} 个单词)</h5>
+                  <div className="stack">
+                    {batchResults.map((result, idx) => (
+                      <div key={idx} style={{ padding: '8px', background: result.status === 'success' ? '#f0f8f0' : '#fff0f0', borderRadius: '4px' }}>
+                        <div
+                          style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                          onClick={() => setExpandedImage(expandedImage === idx ? null : idx)}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <strong>{result.filename}</strong>
+                            {result.status === 'success' ? (
+                              <span className="muted"> - {result.count} 个单词</span>
+                            ) : (
+                              <span style={{ color: 'red' }}> - 失败: {result.error}</span>
+                            )}
+                          </div>
+                          <button className="btn btn-sm">
+                            {expandedImage === idx ? '收起' : '查看'}
+                          </button>
+                        </div>
+
+                        {expandedImage === idx && result.status === 'success' && (
+                          <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #ddd' }}>
+                            {result.words.map((word, widx) => (
+                              <div key={widx} style={{ padding: '4px', borderBottom: widx < result.words.length - 1 ? '1px solid #eee' : 'none' }}>
+                                <div style={{ fontWeight: 600 }}>{word.term}</div>
+                                {word.definition && <div className="muted">释义: {word.definition}</div>}
+                                {word.example && <div className="muted" style={{ fontSize: '12px' }}>例句: {word.example}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="row" style={{ marginTop: '12px' }}>
+                    <button className="btn btn-outline" onClick={() => { setIsBatchMode(false); setBatchResults([]); setBatchProgress(null); }}>
+                      取消
+                    </button>
+                    <button className="btn btn-primary" onClick={() => setIsPreviewMode(true)} disabled={previewWords.length === 0}>
+                      确认并编辑所有单词
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Single Image Dropzone (when not in batch mode) */}
+              {!isBatchMode && imgFiles.length === 0 && (
+                <div ref={dropRef} className="dropzone" onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver} tabIndex={0}>
+                  {previewUrl ? (
+                    <div className="stack" style={{ alignItems: 'center' }}>
+                      <img className="preview" src={previewUrl} alt="预览" />
+                      <div className="muted">已准备：{imgFile?.name || '粘贴的图片'}（{imgFile ? Math.round(imgFile.size / 1024) : 0} KB）</div>
+                      <div className="muted">按 Ctrl/⌘+V 替换，或拖拽进来。支持拖拽多张图片批量处理</div>
+                    </div>
+                  ) : (
+                    <div className="stack" style={{ alignItems: 'center' }}>
+                      <div>将图片粘贴到此处（Ctrl/⌘+V）</div>
+                      <div className="muted">或拖拽图片到此处。支持拖拽多张图片批量处理</div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 

@@ -19,7 +19,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 import dashscope
 from langgraph.graph import END, START, StateGraph
@@ -330,6 +330,8 @@ def node_complete_info(state: ImageState) -> ImageState:
 
     对于第一步提取出的单词，如果缺少释义或例句，
     使用文本模型生成补充。
+
+    优化：批量处理缺失信息，减少API调用次数
     """
     _ensure_api_key()
     extracted_items = state.get("extracted_items", [])
@@ -337,7 +339,9 @@ def node_complete_info(state: ImageState) -> ImageState:
     if not extracted_items:
         return {"completed_items": []}
 
-    completed_items = []
+    # 分离需要补充和不需要补充的单词
+    complete_items = []
+    incomplete_items = []
 
     for item in extracted_items:
         term = item.get("term", "").strip()
@@ -351,13 +355,127 @@ def node_complete_info(state: ImageState) -> ImageState:
         need_definition = not definition or not isinstance(definition, str) or not definition.strip()
         need_example = not example or not isinstance(example, str) or not example.strip()
 
-        # 如果需要补充，调用LLM生成
         if need_definition or need_example:
+            incomplete_items.append({
+                "term": term,
+                "definition": definition,
+                "example": example,
+                "need_definition": need_definition,
+                "need_example": need_example
+            })
+        else:
+            complete_items.append({
+                "term": term,
+                "definition": definition.strip() if isinstance(definition, str) else None,
+                "example": example.strip() if isinstance(example, str) else None
+            })
+
+    # 如果没有需要补充的，直接返回
+    if not incomplete_items:
+        print(f"[补充节点] 所有 {len(complete_items)} 个单词信息完整，无需补充")
+        return {"completed_items": complete_items}
+
+    # 批量补充：构建批量请求
+    try:
+        # 构建批量prompt，一次性处理多个单词
+        words_to_complete = []
+        for item in incomplete_items:
+            word_info = {"term": item["term"]}
+            if item["need_definition"]:
+                word_info["need"] = "definition" if item["need_example"] else "definition_only"
+            elif item["need_example"]:
+                word_info["need"] = "example_only"
+            else:
+                word_info["need"] = "both"
+            words_to_complete.append(word_info)
+
+        batch_prompt = (
+            "给定以下英文单词列表，请为每个单词补充缺失的信息：\n\n"
+            + "\n".join([f"{i+1}. {w['term']} (需要: {w['need']})" for i, w in enumerate(words_to_complete)])
+            + "\n\n请输出一个JSON数组，每个元素包含：\n"
+            "- term: 单词\n"
+            "- definition: 中文释义（简洁，不超过20字）\n"
+            "- example: 英文例句（自然流畅）\n\n"
+            "仅输出JSON数组，不要添加其他文本或代码块。\n"
+            "示例格式:\n"
+            '[\n'
+            '  {"term": "ability", "definition": "能力；才能", "example": "She has great ability."},\n'
+            '  {"term": "serene", "definition": "宁静的；安详的", "example": "The lake was serene."}\n'
+            ']'
+        )
+
+        response = dashscope.Generation.call(
+            model=TEXT_MODEL,
+            prompt=batch_prompt
+        )
+
+        text = extract_text_from_response(response)
+        text = text.strip()
+
+        # 清理代码块标记
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\n?", "", text, flags=re.MULTILINE)
+            text = re.sub(r"```$", "", text, flags=re.MULTILINE)
+        text = text.strip()
+
+        # 解析JSON数组
+        enriched_data = []
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                enriched_data = data
+        except json.JSONDecodeError:
+            # 尝试提取JSON数组
+            match = re.search(r'\[[\s\S]*\]', text)
+            if match:
+                try:
+                    enriched_data = json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+
+        # 将批量结果与原始数据合并
+        enriched_dict = {item.get("term", "").lower(): item for item in enriched_data if isinstance(item, dict)}
+
+        for item in incomplete_items:
+            term = item["term"]
+            term_lower = term.lower()
+
+            definition = item["definition"]
+            example = item["example"]
+
+            # 从批量结果中获取补充信息
+            if term_lower in enriched_dict:
+                enriched = enriched_dict[term_lower]
+                if item["need_definition"] and "definition" in enriched:
+                    gen_def = enriched["definition"]
+                    if isinstance(gen_def, str) and gen_def.strip():
+                        definition = gen_def.strip()
+                if item["need_example"] and "example" in enriched:
+                    gen_ex = enriched["example"]
+                    if isinstance(gen_ex, str) and gen_ex.strip():
+                        example = gen_ex.strip()
+
+            complete_items.append({
+                "term": term,
+                "definition": definition.strip() if isinstance(definition, str) and definition else None,
+                "example": example.strip() if isinstance(example, str) and example else None
+            })
+
+        print(f"[补充节点] 批量完成 {len(incomplete_items)} 个单词的信息补充")
+
+    except Exception as e:
+        print(f"[补充节点] 批量处理失败，回退到逐个处理: {e}")
+        # 回退：逐个处理
+        for item in incomplete_items:
+            term = item["term"]
+            definition = item["definition"]
+            example = item["example"]
+
             try:
                 prompt_parts = []
-                if need_definition:
+                if item["need_definition"]:
                     prompt_parts.append("1) 一个简洁的中文释义（不超过20字）")
-                if need_example:
+                if item["need_example"]:
                     prompt_parts.append("2) 一句自然的英文例句")
 
                 prompt = (
@@ -386,36 +504,35 @@ def node_complete_info(state: ImageState) -> ImageState:
                 try:
                     gen_data = json.loads(text)
                     if isinstance(gen_data, dict):
-                        if need_definition and "definition" in gen_data:
+                        if item["need_definition"] and "definition" in gen_data:
                             gen_def = gen_data["definition"]
                             if isinstance(gen_def, str) and gen_def.strip():
                                 definition = gen_def.strip()
-                        if need_example and "example" in gen_data:
+                        if item["need_example"] and "example" in gen_data:
                             gen_ex = gen_data["example"]
                             if isinstance(gen_ex, str) and gen_ex.strip():
                                 example = gen_ex.strip()
                 except json.JSONDecodeError:
                     # 如果解析失败，尝试从文本中提取
-                    if need_definition:
+                    if item["need_definition"]:
                         def_match = re.search(r'"definition"\s*:\s*"([^"]+)"', text)
                         if def_match:
                             definition = def_match.group(1)
-                    if need_example:
+                    if item["need_example"]:
                         ex_match = re.search(r'"example"\s*:\s*"([^"]+)"', text)
                         if ex_match:
                             example = ex_match.group(1)
-            except Exception as e:
-                print(f"[补充节点] 为单词 '{term}' 生成信息时出错: {e}")
+            except Exception as e2:
+                print(f"[补充节点] 为单词 '{term}' 生成信息时出错: {e2}")
 
-        # 添加到完成列表
-        completed_items.append({
-            "term": term,
-            "definition": definition.strip() if isinstance(definition, str) and definition else None,
-            "example": example.strip() if isinstance(example, str) and example else None
-        })
+            complete_items.append({
+                "term": term,
+                "definition": definition.strip() if isinstance(definition, str) and definition else None,
+                "example": example.strip() if isinstance(example, str) and example else None
+            })
 
-    print(f"[补充节点] 完成 {len(completed_items)} 个单词的信息补充")
-    return {"completed_items": completed_items}
+    print(f"[补充节点] 完成 {len(complete_items)} 个单词的信息补充")
+    return {"completed_items": complete_items}
 
 
 def build_agent_graph() -> StateGraph:
