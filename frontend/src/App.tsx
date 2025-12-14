@@ -100,14 +100,21 @@ interface BatchProgress {
 }
 
 function UploadWordlist() {
-  const [name, setName] = useState('My Words')
+  const defaultListName = () => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  const [name, setName] = useState(defaultListName())
   const [listId, setListId] = useState<number | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [imgFile, setImgFile] = useState<File | null>(null)
   const [imgFiles, setImgFiles] = useState<File[]>([])
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [mode, setMode] = useState<'file' | 'image'>('file')
+  const [mode, setMode] = useState<'file' | 'image'>('image')
   const [loading, setLoading] = useState(false)
   const [wordlists, setWordlists] = useState<any[]>([])
   const [showList, setShowList] = useState(false)
