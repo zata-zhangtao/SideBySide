@@ -61,6 +61,8 @@ def _apply_minimal_migrations() -> None:
             "type": "text",
             "status": "text",
             "zh2en_ratio": "int",
+            "practice_ratio": "int",
+            "practice_pool": "text",
         },
         "attempt": {
             "session_id": "int",

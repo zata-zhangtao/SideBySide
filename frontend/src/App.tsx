@@ -803,6 +803,7 @@ function StartSession() {
   const [wordlistId, setWordlistId] = useState('')
   const [friend, setFriend] = useState('')
   const [ratio, setRatio] = useState(50) // zh->en percentage when random
+  const [practiceRatio, setPracticeRatio] = useState(100) // percentage of words to include
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [joinId, setJoinId] = useState('')
   const [message, setMessage] = useState('')
@@ -828,10 +829,11 @@ function StartSession() {
     setMessage('')
     setLoading(true)
     try {
-      const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}&zh2en_ratio=${encodeURIComponent(String(ratio))}`,
+      const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}&zh2en_ratio=${encodeURIComponent(String(ratio))}&practice_ratio=${encodeURIComponent(String(practiceRatio))}`,
         { method: 'POST' })
       setSessionId(data.id)
-      setMessage(`已创建异步打卡（中→英占比 ${data.zh2en_ratio ?? ratio}%），邀请对方加入此 Session ID：${data.id}`)
+      const poolInfo = (data.practice_pool_size != null) ? `，题量占比 ${data.practice_ratio ?? practiceRatio}%（预计 ${data.practice_pool_size} 题）` : ''
+      setMessage(`已创建异步打卡（中→英占比 ${data.zh2en_ratio ?? ratio}%${poolInfo}），邀请对方加入此 Session ID：${data.id}`)
     } catch (e: any) {
       setMessage(`创建失败：${String(e)}`)
     } finally {
@@ -886,6 +888,11 @@ function StartSession() {
           <label className="muted" htmlFor="ratio">中→英占比：{ratio}%</label>
           <input id="ratio" type="range" min={0} max={100} value={ratio}
                  onChange={e => setRatio(Number(e.target.value))} />
+        </div>
+        <div className="stack" style={{ minWidth: 260 }}>
+          <label className="muted" htmlFor="practiceRatio">题量占比（抽取词库的一部分进行练习）：{practiceRatio}%</label>
+          <input id="practiceRatio" type="range" min={1} max={100} value={practiceRatio}
+                 onChange={e => setPracticeRatio(Number(e.target.value))} />
         </div>
         <button className="btn btn-primary" onClick={create} disabled={loading || !wordlistId}>
           {loading ? '创建中…' : '创建'}

@@ -36,6 +36,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+import json
 from sqlmodel import Session, select
 
 from ..core.logging import get_logger
@@ -55,6 +56,7 @@ def create_session(
     friend_username: str,
     type: str = "async",
     zh2en_ratio: int = 50,
+    practice_ratio: int = 100,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -88,7 +90,7 @@ def create_session(
     friend = db.exec(select(User).where(User.username == friend_username)).first()
     if not friend:
         raise HTTPException(status_code=404, detail="Friend not found")
-    # sanitize ratio into 0..100
+    # sanitize ratios into 0..100
     try:
         zh2en_ratio = int(zh2en_ratio)
     except Exception:
@@ -98,6 +100,27 @@ def create_session(
     if zh2en_ratio > 100:
         zh2en_ratio = 100
 
+    try:
+        practice_ratio = int(practice_ratio)
+    except Exception:
+        practice_ratio = 100
+    if practice_ratio < 0:
+        practice_ratio = 0
+    if practice_ratio > 100:
+        practice_ratio = 100
+
+    # Build practice pool if ratio < 100
+    pool_ids: list[int] | None = None
+    if practice_ratio < 100:
+        rows = db.exec(select(Word).where(Word.list_id == wl.id)).all()
+        total = len(rows)
+        if total > 0:
+            import random
+            k = max(1, int(total * practice_ratio / 100)) if practice_ratio > 0 else 0
+            if k > 0:
+                pool = random.sample(rows, k if k <= total else total)
+                pool_ids = [w.id for w in pool]
+
     sess = StudySession(
         type=type,
         wordlist_id=wl.id,
@@ -105,11 +128,20 @@ def create_session(
         user_a_id=user.id,
         user_b_id=friend.id,
         zh2en_ratio=zh2en_ratio,
+        practice_ratio=practice_ratio,
+        practice_pool=(json.dumps(pool_ids) if pool_ids is not None else None),
     )
     db.add(sess)
     db.commit()
     db.refresh(sess)
-    return {"id": sess.id, "type": sess.type, "status": sess.status, "zh2en_ratio": sess.zh2en_ratio}
+    return {
+        "id": sess.id,
+        "type": sess.type,
+        "status": sess.status,
+        "zh2en_ratio": sess.zh2en_ratio,
+        "practice_ratio": sess.practice_ratio,
+        "practice_pool_size": len(pool_ids) if pool_ids is not None else None,
+    }
 
 
 @router.get("/sessions/{session_id}")
@@ -146,6 +178,8 @@ def session_detail(session_id: int, db: Session = Depends(get_db), user: User = 
         "type": sess.type,
         "status": sess.status,
         "zh2en_ratio": getattr(sess, "zh2en_ratio", 50),
+        "practice_ratio": getattr(sess, "practice_ratio", 100),
+        "practice_pool_size": (len(json.loads(sess.practice_pool)) if getattr(sess, "practice_pool", None) else None),
         "wordlist": {"id": wl.id, "name": wl.name} if wl else None,
         "participants": [
             {"id": sess.user_a_id, "username": ua.username if ua else str(sess.user_a_id)},
@@ -194,8 +228,16 @@ def next_word(
     sess = db.get(StudySession, session_id)
     if not sess or user.id not in [sess.user_a_id, sess.user_b_id]:
         raise HTTPException(status_code=404, detail="Session not found")
-    # Fetch words in the list
+    # Fetch words in the list and apply practice pool if present
     words = db.exec(select(Word).where(Word.list_id == sess.wordlist_id)).all()
+    pool_ids: list[int] | None = None
+    if getattr(sess, "practice_pool", None):
+        try:
+            pool_ids = [int(x) for x in json.loads(sess.practice_pool)]
+        except Exception:
+            pool_ids = None
+    if pool_ids is not None:
+        words = [w for w in words if w.id in set(pool_ids)]
     if not words:
         raise HTTPException(status_code=400, detail="No words in the list")
     # Simple random selection; could exclude recently correct items in future
