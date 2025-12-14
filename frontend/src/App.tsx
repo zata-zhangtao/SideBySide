@@ -160,6 +160,37 @@ function UploadWordlist() {
     loadWordlists() // Refresh list after creating
   }
 
+  const deleteWordlist = async (listId: number, listName: string) => {
+    if (!confirm(`确定要删除词库"${listName}"吗？删除后无法恢复。`)) {
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/wordlists/${listId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setMessage(data.message)
+      // Clear expanded state if this list was expanded
+      if (expandedListId === listId) {
+        setExpandedListId(null)
+      }
+      // Remove from words cache
+      setWords(prev => {
+        const newWords = { ...prev }
+        delete newWords[listId]
+        return newWords
+      })
+      loadWordlists() // Refresh list after deleting
+    } catch (err: any) {
+      setMessage(err.message || '删除失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const createFromImage = async () => {
     if (!imgFile) return
     setLoading(true)
@@ -517,6 +548,17 @@ function UploadWordlist() {
                           style={{ marginLeft: '8px' }}
                         >
                           {expandedListId === wl.id ? '收起' : '查看单词'}
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteWordlist(wl.id, wl.name)
+                          }}
+                          style={{ marginLeft: '8px', background: '#dc3545', color: 'white' }}
+                          disabled={loading}
+                        >
+                          删除
                         </button>
                       </div>
 

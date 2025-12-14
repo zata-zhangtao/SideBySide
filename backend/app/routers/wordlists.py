@@ -5,11 +5,12 @@
 This module provides all API endpoints for wordlist management, including:
 
 1. 创建和查询单词本 (Create and query wordlists)
-2. 上传json/csv文件导入单词 (Upload json/csv files to import words)
-3. 从图片提取单词（使用 LLM） (Extract words from images using LLM)
-4. 预览功能（在保存前查看提取结果） (Preview functionality before saving)
-5. 批量保存单词 (Batch save words)
-6. 批量图片处理（Batch image processing）
+2. 删除单词本 (Delete wordlists)
+3. 上传json/csv文件导入单词 (Upload json/csv files to import words)
+4. 从图片提取单词（使用 LLM） (Extract words from images using LLM)
+5. 预览功能（在保存前查看提取结果） (Preview functionality before saving)
+6. 批量保存单词 (Batch save words)
+7. 批量图片处理（Batch image processing）
 """
 from __future__ import annotations
 
@@ -193,6 +194,41 @@ async def create_from_image(
     db.commit()
 
     return {"id": wl.id, "name": wl.name, "message": f"Extracted {created} items from image"}
+
+
+@router.delete("/wordlists/{list_id}")
+def delete_wordlist(
+    list_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    删除指定的单词本 (Delete specified wordlist)
+
+    删除单词本及其包含的所有单词
+    Deletes the wordlist and all its associated words
+
+    Args:
+        list_id: 单词本 ID (wordlist ID)
+
+    Returns:
+        包含删除结果的消息 (message with deletion result)
+    """
+    wl = db.get(WordList, list_id)
+    if not wl or wl.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Wordlist not found")
+
+    # Delete all words in the wordlist first
+    words = db.exec(select(Word).where(Word.list_id == wl.id)).all()
+    word_count = len(words)
+    for word in words:
+        db.delete(word)
+
+    # Delete the wordlist
+    db.delete(wl)
+    db.commit()
+
+    return {"message": f"Deleted wordlist '{wl.name}' and {word_count} words"}
 
 
 @router.get("/wordlists/{list_id}/words")
