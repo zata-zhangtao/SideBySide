@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import Upload from './components/Upload'
+import MyWordlists from './components/MyWordlists'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api'
 
@@ -1265,8 +1266,8 @@ function Friends() {
 export default function App() {
   const { token, setToken } = useToken()
   const [me, setMe] = useState<any>(null)
-  type Tab = 'upload'|'session'|'leaderboard'|'report'|'friends'
-  const validTabs = new Set<Tab>(['upload','session','leaderboard','report','friends'])
+  type Tab = 'upload'|'session'|'leaderboard'|'report'|'friends'|'wordlists'
+  const validTabs = new Set<Tab>(['upload','session','leaderboard','report','friends','wordlists'])
   const getInitialTab = (): Tab => {
     const fromHash = (location.hash || '').replace(/^#/, '') as Tab
     if (validTabs.has(fromHash)) return fromHash
@@ -1306,6 +1307,7 @@ export default function App() {
           <div className="brand">SideBySide</div>
           <nav className="tabs">
             <button className={`btn btn-sm tab ${tab === 'upload' ? 'active' : ''}`} onClick={() => setTab('upload')}><i className="ri-upload-2-line" style={{ marginRight: 6 }} />上传词库</button>
+            <button className={`btn btn-sm tab ${tab === 'wordlists' ? 'active' : ''}`} onClick={() => setTab('wordlists')}><i className="ri-book-2-line" style={{ marginRight: 6 }} />我的词库</button>
             <button className={`btn btn-sm tab ${tab === 'session' ? 'active' : ''}`} onClick={() => setTab('session')}><i className="ri-timer-line" style={{ marginRight: 6 }} />开始打卡</button>
             <button className={`btn btn-sm tab ${tab === 'friends' ? 'active' : ''}`} onClick={() => setTab('friends')}><i className="ri-user-heart-line" style={{ marginRight: 6 }} />好友</button>
             <button className={`btn btn-sm tab ${tab === 'leaderboard' ? 'active' : ''}`} onClick={() => setTab('leaderboard')}><i className="ri-bar-chart-2-line" style={{ marginRight: 6 }} />排行榜</button>
@@ -1319,6 +1321,7 @@ export default function App() {
       </header>
       <main className="container grid">
         {tab === 'upload' && <Upload />}
+        {tab === 'wordlists' && <MyWordlists />}
         {tab === 'session' && <StartSession />}
         {tab === 'leaderboard' && <Leaderboard />}
         {tab === 'report' && <WeeklyReport />}
