@@ -907,16 +907,18 @@ function Quiz({ sessionId }: { sessionId: number }) {
   const [board, setBoard] = useState<any>(null)
   const [detail, setDetail] = useState<any>(null)
   const [wrong, setWrong] = useState<any[]>([])
+  const [mode, setMode] = useState<'random' | 'zh2en' | 'en2zh'>('random')
 
   const loadNext = async () => {
-    const w = await api(`/sessions/${sessionId}/next_word`)
+    const dirParam = mode === 'random' ? '' : `?direction=${mode}`
+    const w = await api(`/sessions/${sessionId}/next_word${dirParam}`)
     setWord(w)
     setAnswer('')
     setResult(null)
     refresh()
   }
   const submit = async () => {
-    const r = await api(`/sessions/${sessionId}/attempts?word_id=${word.word_id}&answer=${encodeURIComponent(answer)}`, { method: 'POST' })
+    const r = await api(`/sessions/${sessionId}/attempts?word_id=${word.word_id}&answer=${encodeURIComponent(answer)}&direction=${encodeURIComponent(word.direction || 'zh2en')}`, { method: 'POST' })
     setResult(r)
     refresh()
   }
@@ -940,12 +942,33 @@ function Quiz({ sessionId }: { sessionId: number }) {
   return (
     <div className="page">
       <h4 className="section-title">抽背单词</h4>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <span className="muted">方向：</span>
+        <button className={`btn btn-sm ${mode === 'random' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('random')}>随机</button>
+        <button className={`btn btn-sm ${mode === 'zh2en' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('zh2en')}>中 → 英</button>
+        <button className={`btn btn-sm ${mode === 'en2zh' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('en2zh')}>英 → 中</button>
+        <button className="btn btn-sm" onClick={loadNext}>换题</button>
+      </div>
       {word && (
         <div className="card stack">
-          <div className="muted">释义</div>
-          <div>{word.definition || '—'}</div>
+          {word.direction === 'en2zh' ? (
+            <>
+              <div className="muted">单词</div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{word.term}</div>
+            </>
+          ) : (
+            <>
+              <div className="muted">释义</div>
+              <div>{word.definition || '—'}</div>
+            </>
+          )}
           <div className="row">
-            <input className="input" placeholder="请输入英文单词" value={answer} onChange={e => setAnswer(e.target.value)} />
+            <input
+              className="input"
+              placeholder={word.direction === 'en2zh' ? '请输入中文释义' : '请输入英文单词'}
+              value={answer}
+              onChange={e => setAnswer(e.target.value)}
+            />
             <button className="btn btn-primary" onClick={submit}>提交</button>
             <button className="btn" onClick={loadNext}>换一个</button>
           </div>

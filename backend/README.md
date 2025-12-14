@@ -13,6 +13,9 @@ Features
 - Users: register/login (JWT), friends
 - Wordlists: upload CSV/JSON, manage words
 - Sessions: async quiz sessions (two users), scoreboard, attempts
+  - Bidirectional quizzing: definition → term (中→英) and term → definition (英→中)
+  - `GET /api/sessions/{id}/next_word?direction=zh2en|en2zh|random` (default random)
+  - `POST /api/sessions/{id}/attempts?word_id=..&answer=..&direction=zh2en|en2zh`
 - Points: +10 for correct, 0 for incorrect
 - Wrongbook: list of words either user answered wrong
 - Leaderboard: weekly and all‑time points
