@@ -52,6 +52,8 @@ class StudySession(SessionBase, table=True):
     user_a_id: int = Field(foreign_key="user.id")
     user_b_id: int = Field(foreign_key="user.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Percentage (0-100) of zh->en questions when direction is random
+    zh2en_ratio: int = Field(default=50)
 
 
 class Attempt(SQLModel, table=True):

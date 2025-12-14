@@ -16,6 +16,9 @@ Features
   - Bidirectional quizzing: definition → term (中→英) and term → definition (英→中)
   - `GET /api/sessions/{id}/next_word?direction=zh2en|en2zh|random` (default random)
   - `POST /api/sessions/{id}/attempts?word_id=..&answer=..&direction=zh2en|en2zh`
+  - Create with practice ratio: `POST /api/sessions?wordlist_id=..&friend_username=..&zh2en_ratio=50`
+    - `zh2en_ratio` is the percentage (0–100) of 中→英 when direction is random
+    - `next_word` uses this ratio if `direction` is omitted or set to `random`
 - Points: +10 for correct, 0 for incorrect
 - Wrongbook: list of words either user answered wrong
 - Leaderboard: weekly and all‑time points

@@ -60,6 +60,7 @@ def _apply_minimal_migrations() -> None:
             "created_at": "datetime",
             "type": "text",
             "status": "text",
+            "zh2en_ratio": "int",
         },
         "attempt": {
             "session_id": "int",

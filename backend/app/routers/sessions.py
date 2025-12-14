@@ -54,6 +54,7 @@ def create_session(
     wordlist_id: int,
     friend_username: str,
     type: str = "async",
+    zh2en_ratio: int = 50,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -87,11 +88,28 @@ def create_session(
     friend = db.exec(select(User).where(User.username == friend_username)).first()
     if not friend:
         raise HTTPException(status_code=404, detail="Friend not found")
-    sess = StudySession(type=type, wordlist_id=wl.id, created_by=user.id, user_a_id=user.id, user_b_id=friend.id)
+    # sanitize ratio into 0..100
+    try:
+        zh2en_ratio = int(zh2en_ratio)
+    except Exception:
+        zh2en_ratio = 50
+    if zh2en_ratio < 0:
+        zh2en_ratio = 0
+    if zh2en_ratio > 100:
+        zh2en_ratio = 100
+
+    sess = StudySession(
+        type=type,
+        wordlist_id=wl.id,
+        created_by=user.id,
+        user_a_id=user.id,
+        user_b_id=friend.id,
+        zh2en_ratio=zh2en_ratio,
+    )
     db.add(sess)
     db.commit()
     db.refresh(sess)
-    return {"id": sess.id, "type": sess.type, "status": sess.status}
+    return {"id": sess.id, "type": sess.type, "status": sess.status, "zh2en_ratio": sess.zh2en_ratio}
 
 
 @router.get("/sessions/{session_id}")
@@ -127,6 +145,7 @@ def session_detail(session_id: int, db: Session = Depends(get_db), user: User = 
         "id": sess.id,
         "type": sess.type,
         "status": sess.status,
+        "zh2en_ratio": getattr(sess, "zh2en_ratio", 50),
         "wordlist": {"id": wl.id, "name": wl.name} if wl else None,
         "participants": [
             {"id": sess.user_a_id, "username": ua.username if ua else str(sess.user_a_id)},
@@ -182,10 +201,17 @@ def next_word(
     # Simple random selection; could exclude recently correct items in future
     w = random.choice(words)
 
-    # Decide direction: default random if not specified; fallback when data missing
+    # Decide direction: use session ratio if not specified; fallback when missing data
     chosen = direction
     if not chosen or chosen == "random":
-        chosen = random.choice(["zh2en", "en2zh"])  # definition->term or term->definition
+        ratio = getattr(sess, "zh2en_ratio", 50)
+        try:
+            ratio = int(ratio)
+        except Exception:
+            ratio = 50
+        ratio = max(0, min(100, ratio))
+        roll = random.randint(1, 100)
+        chosen = "zh2en" if roll <= ratio else "en2zh"
     if chosen == "en2zh" and not ((w.definition or "").strip()):
         # If no definition, fallback to zh2en
         chosen = "zh2en"

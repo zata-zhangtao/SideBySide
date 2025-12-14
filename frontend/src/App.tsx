@@ -802,6 +802,7 @@ function UploadWordlist() {
 function StartSession() {
   const [wordlistId, setWordlistId] = useState('')
   const [friend, setFriend] = useState('')
+  const [ratio, setRatio] = useState(50) // zh->en percentage when random
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [joinId, setJoinId] = useState('')
   const [message, setMessage] = useState('')
@@ -827,9 +828,10 @@ function StartSession() {
     setMessage('')
     setLoading(true)
     try {
-      const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}`, { method: 'POST' })
+      const data = await api(`/sessions?wordlist_id=${encodeURIComponent(wordlistId)}&friend_username=${encodeURIComponent(friend)}&zh2en_ratio=${encodeURIComponent(String(ratio))}`,
+        { method: 'POST' })
       setSessionId(data.id)
-      setMessage(`已创建异步打卡，邀请对方加入此 Session ID：${data.id}`)
+      setMessage(`已创建异步打卡（中→英占比 ${data.zh2en_ratio ?? ratio}%），邀请对方加入此 Session ID：${data.id}`)
     } catch (e: any) {
       setMessage(`创建失败：${String(e)}`)
     } finally {
@@ -880,6 +882,11 @@ function StartSession() {
           ))}
         </select>
         <input className="input" placeholder="好友用户名" value={friend} onChange={e => setFriend(e.target.value)} />
+        <div className="stack" style={{ minWidth: 220 }}>
+          <label className="muted" htmlFor="ratio">中→英占比：{ratio}%</label>
+          <input id="ratio" type="range" min={0} max={100} value={ratio}
+                 onChange={e => setRatio(Number(e.target.value))} />
+        </div>
         <button className="btn btn-primary" onClick={create} disabled={loading || !wordlistId}>
           {loading ? '创建中…' : '创建'}
         </button>
