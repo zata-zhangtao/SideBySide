@@ -1,0 +1,18 @@
+services:
+  backend:
+    # 使用预构建镜像，而不是在服务器上构建
+    # 通过环境变量传入镜像名，便于按版本切换与回滚
+    image: ${BACKEND_IMAGE:-your-registry/your-namespace/sidebyside-backend:latest}
+    pull_policy: if_not_present
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-your-registry/your-namespace/sidebyside-frontend:latest}
+    pull_policy: if_not_present
+
+# 说明：
+# - 与 docker-compose.yml 与 docker-compose.prod.yml 叠加使用。
+# - 因为基础文件中包含 build 配置，实际部署时请使用 `--no-build`，
+#   并提前设置 BACKEND_IMAGE / FRONTEND_IMAGE。
+# - 示例：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.deploy.yml \
+#     --env-file .env.prod up -d --no-build
